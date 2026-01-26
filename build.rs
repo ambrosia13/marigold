@@ -29,7 +29,7 @@ fn has_entrypoint(pattern: &Regex, path: &Path) -> bool {
     pattern.is_match(&source)
 }
 
-fn compile(slangc: &str, regex: &Regex, log_file: &mut File, path: &Path) {
+fn compile(slangc: &str, regex: &Regex, log_file: &mut Option<File>, path: &Path) {
     if !path.is_dir() {
         if !has_entrypoint(regex, path) {
             return;
@@ -69,14 +69,29 @@ fn compile(slangc: &str, regex: &Regex, log_file: &mut File, path: &Path) {
         let output = cmd.output().unwrap();
 
         if !output.status.success() {
+            let log_file = match log_file {
+                Some(file) => file,
+                None => {
+                    // create the file and use it
+                    *log_file = Some(update_log());
+                    log_file.as_mut().unwrap()
+                }
+            };
+
             let stdout = String::from_utf8(output.stdout).unwrap();
             let stderr = String::from_utf8(output.stderr).unwrap();
 
-            writeln!(log_file, "stdout:\n{}\n\nstderr:\n{}", stdout, stderr)
-                .expect("unable to write to shader compilation log file");
+            writeln!(
+                log_file,
+                "{}\nstdout:\n{}\n\nstderr:\n{}\n",
+                path.to_string_lossy(),
+                stdout,
+                stderr
+            )
+            .expect("unable to write to shader compilation log file");
 
-            panic!(
-                "Failed to compile {} into {}, putting detailed compiler error in {}/latest.log",
+            println!(
+                "cargo:warning=Failed to compile {} into {}, putting detailed compiler error in {}/latest.log",
                 path.to_string_lossy(),
                 output_path.to_string_lossy(),
                 ERROR_DIRECTORY,
@@ -123,7 +138,7 @@ fn main() {
         _ => String::from("slangc"),
     };
 
-    let mut log_file = update_log();
+    let mut log_file: Option<File> = None;
 
     compile(
         &slangc,
@@ -131,4 +146,9 @@ fn main() {
         &mut log_file,
         Path::new(INPUT_DIRECTORY),
     );
+
+    // if log_file is Some then there was at least one error
+    if log_file.is_some() {
+        panic!("stopping build due to shader compiler errors");
+    }
 }

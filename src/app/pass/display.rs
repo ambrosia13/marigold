@@ -1,19 +1,27 @@
 use bevy_ecs::{
     resource::Resource,
-    system::{Commands, Res},
+    system::{Commands, Res, ResMut},
 };
 
-use crate::app::{pass::post::PostTextures, render::SurfaceState};
+use crate::{
+    app::{
+        pass::post::PostTextures,
+        render::{FrameRecord, SurfaceState},
+    },
+    util,
+};
 
 #[derive(Resource)]
-pub struct DisplayBinding {
+pub struct DisplayPass {
+    pipeline: wgpu::RenderPipeline,
+
     sampler: wgpu::Sampler,
 
-    pub bind_group: wgpu::BindGroup,
-    pub bind_group_layout: wgpu::BindGroupLayout,
+    bind_group: wgpu::BindGroup,
+    bind_group_layout: wgpu::BindGroupLayout,
 }
 
-impl DisplayBinding {
+impl DisplayPass {
     pub fn init(
         mut commands: Commands,
         surface_state: Res<SurfaceState>,
@@ -79,13 +87,108 @@ impl DisplayBinding {
                 ],
             });
 
+        let pipeline_layout =
+            surface_state
+                .gpu
+                .device
+                .create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                    label: Some("display_pipeline_layout"),
+                    bind_group_layouts: &[&bind_group_layout],
+                    immediate_size: 0,
+                });
+
+        let vertex_shader_source = util::get_spirv_source("frame.slang");
+        let fragment_shader_source = util::get_spirv_source("final.slang");
+
+        log::info!("compiling display vertex shader");
+
+        let vertex_shader_module =
+            surface_state
+                .gpu
+                .device
+                .create_shader_module(wgpu::ShaderModuleDescriptor {
+                    label: Some("display_vertex_shader"),
+                    source: wgpu::ShaderSource::SpirV(vertex_shader_source.into()),
+                });
+
+        log::info!("compiling display fragment shader");
+
+        let fragment_shader_module =
+            surface_state
+                .gpu
+                .device
+                .create_shader_module(wgpu::ShaderModuleDescriptor {
+                    label: Some("display_fragment_shader"),
+                    source: wgpu::ShaderSource::SpirV(fragment_shader_source.into()),
+                });
+
+        let pipeline =
+            surface_state
+                .gpu
+                .device
+                .create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                    label: Some("display_pipeline"),
+                    layout: Some(&pipeline_layout),
+                    vertex: wgpu::VertexState {
+                        module: &vertex_shader_module,
+                        entry_point: Some("vertex"),
+                        compilation_options: Default::default(),
+                        buffers: &[],
+                    },
+                    primitive: Default::default(),
+                    depth_stencil: None,
+                    multisample: Default::default(),
+                    fragment: Some(wgpu::FragmentState {
+                        module: &fragment_shader_module,
+                        entry_point: Some("fragment"),
+                        compilation_options: Default::default(),
+                        targets: &[Some(wgpu::ColorTargetState {
+                            format: surface_state.config.format,
+                            blend: None,
+                            write_mask: wgpu::ColorWrites::all(),
+                        })],
+                    }),
+                    multiview_mask: None,
+                    cache: None,
+                });
+
         let display_binding = Self {
+            pipeline,
             sampler,
             bind_group,
             bind_group_layout,
         };
 
         commands.insert_resource(display_binding);
-        log::info!("created display binding");
+        log::info!("created display pass");
+    }
+
+    pub fn update(display_pass: Res<Self>, mut frame: ResMut<FrameRecord>) {
+        let view = frame.surface_texture_view.clone();
+
+        let mut render_pass = frame
+            .encoder
+            .begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("display_render_pass"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &view,
+                    depth_slice: None,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::DontCare(unsafe { wgpu::LoadOpDontCare::enabled() }),
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: None,
+                timestamp_writes: None,
+                occlusion_query_set: None,
+                multiview_mask: None,
+            });
+
+        render_pass.set_bind_group(0, &display_pass.bind_group, &[]);
+
+        render_pass.set_pipeline(&display_pass.pipeline);
+
+        render_pass.draw(0..6, 0..1);
     }
 }

@@ -100,7 +100,7 @@ impl Default for Schedules {
 
         schedules.on_init_render_setup.add_systems((
             camera::ScreenBinding::init,
-            (post::PostTextures::init, display::DisplayBinding::init).chain(),
+            (post::PostTextures::init, display::DisplayPass::init).chain(),
         ));
 
         schedules.on_redraw_pre_frame.add_systems((
@@ -111,7 +111,7 @@ impl Default for Schedules {
 
         schedules
             .on_redraw_render
-            .add_systems(camera::ScreenBinding::update);
+            .add_systems((camera::ScreenBinding::update, display::DisplayPass::update).chain());
 
         schedules
             .on_redraw_post_frame
@@ -119,7 +119,7 @@ impl Default for Schedules {
 
         schedules.on_resize.add_systems((
             camera::Camera::on_resize,
-            (post::PostTextures::init, display::DisplayBinding::init).chain(),
+            (post::PostTextures::init, display::DisplayPass::init).chain(),
         ));
 
         // messages

@@ -38,5 +38,5 @@ void compute(
 
     float2 texcoord = float2(globalInvocationId.xy) / float2(screen.view.width, screen.view.height);
 
-    textures.output.Store(globalInvocationId.xy, float4(texcoord, 0.0, 1.0));
+    textures.outputTexture.Store(globalInvocationId.xy, float4(texcoord, 0.0, 1.0));
 }
