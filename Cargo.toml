@@ -1,0 +1,33 @@
+[package]
+name = "marigold"
+version = "0.1.0"
+edition = "2024"
+
+[build-dependencies]
+regex = "1.12.2"
+chrono = "0.4.42"
+
+[dependencies]
+# rendering
+wgpu = "28.0.0"
+winit = "0.30.12"
+
+# game engine stuff
+bevy_ecs = "0.17.3"
+glam = "0.30.9"
+
+# logging
+env_logger = "0.11.8"
+log = "0.4.29"
+
+# general utility
+pollster = "0.4.0"
+anyhow = "1.0.100"
+derived-deref = "2.1.0"
+
+# data manipulation
+gpu_layout = "0.2.1"
+bytemuck = "1.24.0"
+
+# noise & random
+rand = "0.9.2"
