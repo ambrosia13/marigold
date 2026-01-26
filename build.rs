@@ -101,7 +101,7 @@ fn update_log() -> File {
 
             std::fs::rename(
                 &path,
-                Path::new(ERROR_DIRECTORY).join(format!("error_{}.log", timestamp)),
+                Path::new(ERROR_DIRECTORY).join(format!("log_{}.log", timestamp)),
             )
             .expect("unable to rename shader compilation log file");
         } else {
