@@ -1,7 +1,11 @@
 use std::sync::Arc;
 
+use bevy_ecs::{
+    resource::Resource,
+    system::{Commands, ResMut},
+};
 use glam::UVec2;
-use gpu_layout::{AsGpuBytes, GpuBytes};
+use gpu_layout::{AsGpuBytes, GpuBytes, Std140Layout};
 
 pub struct Font {
     bitmap: [u64; 128],
@@ -93,7 +97,7 @@ pub struct Menu {
 }
 
 impl Menu {
-    pub fn new(font: Arc<Font>) -> Self {
+    fn new(font: Arc<Font>) -> Self {
         Self {
             font,
             lines: Vec::new(),
@@ -112,6 +116,7 @@ impl Menu {
     }
 }
 
+#[derive(Resource)]
 pub struct Menus {
     font: Arc<Font>,
     pub left: Menu,
@@ -119,7 +124,7 @@ pub struct Menus {
 }
 
 impl Menus {
-    pub fn new() -> Self {
+    fn new() -> Self {
         let font = Arc::new(Font::new());
 
         Self {
@@ -132,5 +137,44 @@ impl Menus {
     pub fn reset(&mut self) {
         self.left.reset();
         self.right.reset();
+    }
+
+    pub fn init(mut commands: Commands) {
+        commands.insert_resource(Self::new());
+        log::info!("initialized menus");
+    }
+
+    // clear menu every frame
+    pub fn update(mut menus: ResMut<Menus>) {
+        menus.reset();
+    }
+}
+
+pub struct MenuBinding {
+    menu_data: wgpu::Buffer,
+    left_menu: wgpu::Buffer,
+    right_menu: wgpu::Buffer,
+
+    bind_group: wgpu::BindGroup,
+    bind_group_layout: wgpu::BindGroupLayout,
+}
+
+impl MenuBinding {
+    fn prepare_menu_data(menus: &Menus) -> GpuBytes<'_, Std140Layout> {
+        let mut buf = GpuBytes::empty();
+
+        // char padding
+        buf.write(&1u32);
+
+        // line padding
+        buf.write(&2u32);
+
+        // left line count
+        buf.write(&(menus.left.lines.len() as u32));
+
+        // right line count
+        buf.write(&(menus.right.lines.len() as u32));
+
+        buf
     }
 }

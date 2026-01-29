@@ -102,25 +102,15 @@ impl DisplayPass {
 
         log::info!("compiling display vertex shader");
 
-        let vertex_shader_module =
-            surface_state
-                .gpu
-                .device
-                .create_shader_module(wgpu::ShaderModuleDescriptor {
-                    label: Some("display_vertex_shader"),
-                    source: wgpu::ShaderSource::SpirV(vertex_shader_source.into()),
-                });
+        let vertex_shader_module = surface_state
+            .gpu
+            .create_shader_module("display_vertex_shader", vertex_shader_source.into());
 
         log::info!("compiling display fragment shader");
 
-        let fragment_shader_module =
-            surface_state
-                .gpu
-                .device
-                .create_shader_module(wgpu::ShaderModuleDescriptor {
-                    label: Some("display_fragment_shader"),
-                    source: wgpu::ShaderSource::SpirV(fragment_shader_source.into()),
-                });
+        let fragment_shader_module = surface_state
+            .gpu
+            .create_shader_module("display_fragment_shader", fragment_shader_source.into());
 
         let pipeline =
             surface_state

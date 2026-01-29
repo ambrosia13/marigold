@@ -19,12 +19,13 @@ Event-driven:
 use bevy_ecs::schedule::{IntoScheduleConfigs, Schedule, ScheduleLabel};
 
 use crate::app::{
-    data::{self, camera, input, time},
+    data::{camera, input, time},
+    menu,
     messages::{
         KeyInputMessage, MouseInputMessage, MouseMotionMessage, init_message_type,
         update_message_type,
     },
-    pass::{display, post},
+    pass::{display, geometry, post},
 };
 
 #[derive(ScheduleLabel, Eq, PartialEq, Copy, Clone, Hash, Debug)]
@@ -94,14 +95,28 @@ impl Default for Schedules {
             on_resize,
         };
 
-        schedules
-            .on_init_app_setup
-            .add_systems((time::Time::init, (input::Input::init, camera::Camera::init)).chain());
+        schedules.on_init_app_setup.add_systems(
+            (
+                time::Time::init,
+                (input::Input::init, camera::Camera::init, menu::Menus::init),
+            )
+                .chain(),
+        );
 
-        schedules.on_init_render_setup.add_systems((
-            camera::ScreenBinding::init,
-            (post::PostTextures::init, display::DisplayPass::init).chain(),
-        ));
+        schedules.on_init_render_setup.add_systems(
+            (
+                camera::ScreenBinding::init,
+                (
+                    geometry::GeometryTextures::init,
+                    geometry::GeometryCommon::init, // doesn't need to run on resize
+                    geometry::create_pathtrace_pipeline,
+                    post::PostTextures::init,
+                    display::DisplayPass::init,
+                )
+                    .chain(),
+            )
+                .chain(),
+        );
 
         schedules.on_redraw_pre_frame.add_systems((
             input::handle_keyboard_input_event,
@@ -109,18 +124,36 @@ impl Default for Schedules {
             camera::Camera::update,
         ));
 
-        schedules
-            .on_redraw_render
-            .add_systems((camera::ScreenBinding::update, display::DisplayPass::update).chain());
+        schedules.on_redraw_render.add_systems(
+            (
+                camera::ScreenBinding::update,
+                geometry::draw_geometry,
+                display::DisplayPass::update,
+            )
+                .chain(),
+        );
 
-        schedules
-            .on_redraw_post_frame
-            .add_systems((input::Input::update, time::Time::update).chain());
+        schedules.on_redraw_post_frame.add_systems(
+            (
+                input::Input::update,
+                time::Time::update,
+                menu::Menus::update,
+            )
+                .chain(),
+        );
 
-        schedules.on_resize.add_systems((
-            camera::Camera::on_resize,
-            (post::PostTextures::init, display::DisplayPass::init).chain(),
-        ));
+        schedules.on_resize.add_systems(
+            (
+                camera::Camera::on_resize,
+                (
+                    geometry::GeometryTextures::init,
+                    post::PostTextures::init,
+                    display::DisplayPass::init,
+                )
+                    .chain(),
+            )
+                .chain(),
+        );
 
         // messages
         schedules.on_init_message_setup.add_systems((

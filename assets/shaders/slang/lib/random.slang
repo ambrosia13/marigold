@@ -1,6 +1,6 @@
 module random;
 
-import header;
+import math;
 
 void pcg(inout uint seed) {
     uint state = seed * 747796405 + 2891336453;
@@ -29,7 +29,7 @@ public struct Random {
     [mutating]
     public float3 getUnitVector() {
         float2 xy = float2(this.getFloat(), this.getFloat());
-        xy.x *= math.TAU;
+        xy.x *= TAU;
         xy.y = 2.0 * xy.y - 1.0;
 
         return float3(float2(sin(xy.x), cos(xy.x)) * sqrt(1.0 - xy.y * xy.y), xy.y);

@@ -3,7 +3,6 @@ use std::sync::Arc;
 use bevy_ecs::world::World;
 use winit::{
     application::ApplicationHandler,
-    dpi::PhysicalSize,
     event::WindowEvent,
     event_loop::{ActiveEventLoop, EventLoop},
     window::{Window, WindowAttributes},

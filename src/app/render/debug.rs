@@ -95,7 +95,7 @@ impl TimeQuery {
         self.current_sample_index % DEBUG_PROFILER_SAMPLE_COUNT as u32
     }
 
-    pub fn compute_timestamp_writes(&self) -> wgpu::ComputePassTimestampWrites {
+    pub fn compute_timestamp_writes(&self) -> wgpu::ComputePassTimestampWrites<'_> {
         wgpu::ComputePassTimestampWrites {
             query_set: &self.query_set,
             beginning_of_pass_write_index: Some(self.wrap_sample_index() * 2),
@@ -103,7 +103,7 @@ impl TimeQuery {
         }
     }
 
-    pub fn render_timestamp_writes(&self) -> wgpu::RenderPassTimestampWrites {
+    pub fn render_timestamp_writes(&self) -> wgpu::RenderPassTimestampWrites<'_> {
         wgpu::RenderPassTimestampWrites {
             query_set: &self.query_set,
             beginning_of_pass_write_index: Some(self.wrap_sample_index() * 2),

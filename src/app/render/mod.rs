@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::{borrow::Cow, sync::Arc};
 
 use bevy_ecs::resource::Resource;
 use wgpu::SurfaceError;
@@ -23,11 +23,35 @@ pub const WGPU_LIMITS: wgpu::Limits = wgpu::Limits {
 };
 
 #[derive(Clone)]
+#[allow(unused)]
 pub struct GpuHandle {
     pub instance: wgpu::Instance,
     pub adapter: wgpu::Adapter,
     pub device: wgpu::Device,
     pub queue: wgpu::Queue,
+}
+
+impl GpuHandle {
+    pub fn create_shader_module(&self, label: &str, source: Cow<'_, [u32]>) -> wgpu::ShaderModule {
+        #[cfg(debug_assertions)]
+        return self
+            .device
+            .create_shader_module(wgpu::ShaderModuleDescriptor {
+                label: Some(label),
+                source: wgpu::ShaderSource::SpirV(source),
+            });
+
+        // use passthrough shader modules when in release mode so we don't needlessly send spirv shaders through naga
+        #[cfg(not(debug_assertions))]
+        unsafe {
+            self.device
+                .create_shader_module_passthrough(wgpu::ShaderModuleDescriptorPassthrough {
+                    label: Some(label),
+                    spirv: Some(source),
+                    ..Default::default()
+                })
+        }
+    }
 }
 
 #[derive(Resource)]
@@ -53,8 +77,17 @@ impl SurfaceState {
     pub async fn new(window: Arc<Window>) -> anyhow::Result<Self> {
         let viewport_size = window.inner_size();
 
+        let mut instance_flags = wgpu::InstanceFlags::empty();
+
+        // enable vulkan validation layer in debug builds
+        #[cfg(debug_assertions)]
+        {
+            instance_flags |= wgpu::InstanceFlags::debugging();
+        }
+
         let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
             backends: wgpu::Backends::VULKAN,
+            flags: instance_flags,
             ..Default::default()
         });
 
