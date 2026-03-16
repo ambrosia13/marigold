@@ -1,5 +1,5 @@
 use egui_wgpu::{
-    Renderer, RendererOptions, ScreenDescriptor,
+    Renderer, ScreenDescriptor,
     wgpu::{
         CommandEncoder, Device, Queue, RenderPassColorAttachment, RenderPassDescriptor, StoreOp,
         TextureFormat, TextureView,
@@ -41,12 +41,14 @@ impl EguiRenderState {
         let egui_renderer = Renderer::new(
             device,
             output_color_format,
-            RendererOptions {
-                msaa_samples,
-                depth_stencil_format: output_depth_format,
-                dithering: true,
-                predictable_texture_filtering: false,
-            },
+            output_depth_format,
+            1,
+            true, // RendererOptions {
+                  //     msaa_samples,
+                  //     depth_stencil_format: output_depth_format,
+                  //     dithering: true,
+                  //     predictable_texture_filtering: false,
+                  // },
         );
 
         EguiRenderState {
@@ -65,9 +67,9 @@ impl EguiRenderState {
     }
 
     pub fn begin_frame(&mut self, window: &Window) {
-        let raw_input = self.state.take_egui_input(window);
-        self.state.egui_ctx().begin_pass(raw_input);
-        self.frame_started = true;
+        // let raw_input = self.state.take_egui_input(window);
+        // self.state.egui_ctx().begin_pass(raw_input);
+        // self.frame_started = true;
     }
 
     pub fn end_frame_and_draw(
@@ -79,13 +81,17 @@ impl EguiRenderState {
         window_surface_view: &TextureView,
         screen_descriptor: ScreenDescriptor,
     ) {
-        if !self.frame_started {
-            panic!("begin_frame must be called before end_frame_and_draw can be called!");
-        }
+        // if !self.frame_started {
+        //     panic!("begin_frame must be called before end_frame_and_draw can be called!");
+        // }
 
         self.ppp(screen_descriptor.pixels_per_point);
 
-        let full_output = self.state.egui_ctx().end_pass();
+        // let full_output = self.state.egui_ctx().end_pass();
+        let raw_input = self.state.take_egui_input(window);
+        let full_output = self.state.egui_ctx().run(raw_input, |ctx| {
+            egui::Window::new("marigold").show(ctx, |ui| ui.label("hello"));
+        });
 
         self.state
             .handle_platform_output(window, full_output.platform_output);
@@ -114,7 +120,6 @@ impl EguiRenderState {
             timestamp_writes: None,
             label: Some("egui main render pass"),
             occlusion_query_set: None,
-            multiview_mask: None,
         });
 
         self.renderer

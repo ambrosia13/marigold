@@ -78,7 +78,7 @@ impl PostTextures {
                 address_mode_w: wgpu::AddressMode::ClampToEdge,
                 mag_filter: wgpu::FilterMode::Linear,
                 min_filter: wgpu::FilterMode::Linear,
-                mipmap_filter: wgpu::MipmapFilterMode::Linear,
+                mipmap_filter: wgpu::FilterMode::Linear,
                 ..Default::default()
             });
 
@@ -261,7 +261,7 @@ impl PostTextures {
                 .create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                     label: Some("post_pass_blit_pipeline_layout"),
                     bind_group_layouts: &[&blit_bind_group_layout],
-                    immediate_size: 0,
+                    push_constant_ranges: &[],
                 });
 
         let blit_pipeline =
@@ -290,7 +290,7 @@ impl PostTextures {
                             write_mask: wgpu::ColorWrites::all(),
                         })],
                     }),
-                    multiview_mask: None,
+                    multiview: None,
                     cache: None,
                 });
 
@@ -322,14 +322,13 @@ impl PostTextures {
                     depth_slice: None,
                     resolve_target: None,
                     ops: wgpu::Operations {
-                        load: wgpu::LoadOp::DontCare(unsafe { wgpu::LoadOpDontCare::enabled() }),
+                        load: wgpu::LoadOp::Clear(wgpu::Color::WHITE),
                         store: wgpu::StoreOp::Store,
                     },
                 })],
                 depth_stencil_attachment: None,
                 timestamp_writes: None,
                 occlusion_query_set: None,
-                multiview_mask: None,
             });
 
         render_pass.set_bind_group(0, &post_textures.blit_bind_group, &[]);
@@ -442,7 +441,7 @@ impl DummyPostPass {
                     &screen_binding.bind_group_layout,
                     &post_textures.bind_group_layout,
                 ],
-                immediate_size: 0,
+                push_constant_ranges: &[],
             });
 
         let shader_source = util::get_spirv_source("dummy.slang");

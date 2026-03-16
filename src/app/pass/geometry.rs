@@ -141,7 +141,7 @@ impl GeometryCommon {
                     &screen_binding.bind_group_layout,
                     &geometry_textures.bind_group_layout,
                 ],
-                immediate_size: 0,
+                push_constant_ranges: &[],
             });
 
         commands.insert_resource(Self { pipeline_layout });

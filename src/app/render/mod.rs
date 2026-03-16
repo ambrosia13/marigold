@@ -8,7 +8,7 @@ pub mod debug;
 
 pub const WGPU_FEATURES: wgpu::Features = wgpu::Features::FLOAT32_FILTERABLE
     .union(wgpu::Features::RG11B10UFLOAT_RENDERABLE)
-    .union(wgpu::Features::IMMEDIATES)
+    .union(wgpu::Features::PUSH_CONSTANTS)
     .union(wgpu::Features::ADDRESS_MODE_CLAMP_TO_BORDER)
     .union(wgpu::Features::ADDRESS_MODE_CLAMP_TO_ZERO)
     .union(wgpu::Features::TEXTURE_ADAPTER_SPECIFIC_FORMAT_FEATURES)
@@ -18,7 +18,7 @@ pub const WGPU_FEATURES: wgpu::Features = wgpu::Features::FLOAT32_FILTERABLE
     .union(wgpu::Features::EXPERIMENTAL_PASSTHROUGH_SHADERS);
 
 pub const WGPU_LIMITS: wgpu::Limits = wgpu::Limits {
-    max_immediate_size: 128,
+    max_push_constant_size: 128,
     ..wgpu::Limits::defaults()
 };
 

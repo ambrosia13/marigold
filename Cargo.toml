@@ -9,17 +9,17 @@ chrono = "0.4.42"
 
 [dependencies]
 # rendering
-wgpu = { version = "28.0.0", features = ["vulkan-portability", "spirv"] }
-winit = "0.30.13"
+wgpu = { version = "27.0.1", features = ["vulkan-portability", "spirv"] }
+winit = "0.30.12"
 
 # game engine stuff
 bevy_ecs = { version = "0.18.1", features = ["debug"] }
 glam = "0.30.9"
 
 # user interface
-egui = { git = "https://github.com/ambrosia13/egui" }
-egui-wgpu = { git = "https://github.com/ambrosia13/egui" }
-egui-winit = { git = "https://github.com/ambrosia13/egui" }
+egui = { git = "https://github.com/emilk/egui", rev = "427c076" }
+egui-wgpu = { git = "https://github.com/emilk/egui", rev = "427c076" }
+egui-winit = { git = "https://github.com/emilk/egui", rev = "427c076" }
 
 # logging
 env_logger = "0.11.8"

@@ -115,7 +115,7 @@ impl DisplayPass {
                 .create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                     label: Some("display_pipeline_layout"),
                     bind_group_layouts: &[&bind_group_layout],
-                    immediate_size: 0,
+                    push_constant_ranges: &[],
                 });
 
         let vertex_shader_source = util::get_spirv_source("frame.slang");
@@ -159,7 +159,7 @@ impl DisplayPass {
                             write_mask: wgpu::ColorWrites::all(),
                         })],
                     }),
-                    multiview_mask: None,
+                    multiview: None,
                     cache: None,
                 });
 
@@ -199,14 +199,13 @@ impl DisplayPass {
                     depth_slice: None,
                     resolve_target: None,
                     ops: wgpu::Operations {
-                        load: wgpu::LoadOp::DontCare(unsafe { wgpu::LoadOpDontCare::enabled() }),
+                        load: wgpu::LoadOp::Load,
                         store: wgpu::StoreOp::Store,
                     },
                 })],
                 depth_stencil_attachment: None,
                 timestamp_writes: None,
                 occlusion_query_set: None,
-                multiview_mask: None,
             });
 
         render_pass.set_bind_group(0, bind_group, &[]);
