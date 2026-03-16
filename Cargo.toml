@@ -10,7 +10,7 @@ chrono = "0.4.42"
 [dependencies]
 # rendering
 wgpu = { version = "28.0.0", features = ["vulkan-portability", "spirv"] }
-winit = "0.30.12"
+winit = "0.30.13"
 
 # game engine stuff
 bevy_ecs = { version = "0.18.1", features = ["debug"] }

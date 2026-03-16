@@ -1,4 +1,3 @@
-use bevy_ecs::resource::Resource;
 use egui_wgpu::{
     Renderer, RendererOptions, ScreenDescriptor,
     wgpu::{
@@ -11,7 +10,6 @@ use winit::{event::WindowEvent, window::Window};
 
 // Taken from egui example at https://github.com/kaphula/winit-egui-wgpu-template
 
-// #[derive(Resource)]
 pub struct EguiRenderState {
     state: State,
     renderer: Renderer,

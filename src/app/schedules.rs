@@ -20,7 +20,7 @@ use bevy_ecs::schedule::{IntoScheduleConfigs, Schedule, ScheduleLabel};
 
 use crate::app::{
     data::{camera, input, time},
-    // debug_menu,
+    menu,
     messages::{
         KeyInputMessage, MouseInputMessage, MouseMotionMessage, init_message_type,
         update_message_type,
@@ -41,6 +41,9 @@ struct OnInitRenderSetupSchedule;
 struct OnInitAppSetupSchedule;
 
 #[derive(ScheduleLabel, Eq, PartialEq, Copy, Clone, Hash, Debug)]
+struct OnInitMenuSetupSchedule;
+
+#[derive(ScheduleLabel, Eq, PartialEq, Copy, Clone, Hash, Debug)]
 struct OnRedrawPreFrameSchedule;
 
 #[derive(ScheduleLabel, Eq, PartialEq, Copy, Clone, Hash, Debug)]
@@ -52,17 +55,22 @@ struct OnRedrawPostFrameSchedule;
 #[derive(ScheduleLabel, Eq, PartialEq, Copy, Clone, Hash, Debug)]
 struct OnRedrawMessageUpdateSchedule;
 
+#[derive(ScheduleLabel, Eq, PartialEq, Copy, Clone, Hash, Debug)]
+struct OnRedrawMenuUpdateSchedule;
+
 pub struct Schedules {
     // startup schedules
     pub on_init_message_setup: Schedule,
     pub on_init_render_setup: Schedule,
     pub on_init_app_setup: Schedule,
+    pub on_init_menu_setup: Schedule,
 
     // per-frame schedules
     pub on_redraw_pre_frame: Schedule,
     pub on_redraw_render: Schedule,
     pub on_redraw_post_frame: Schedule,
     pub on_redraw_message_update: Schedule,
+    pub on_redraw_menu_update: Schedule,
 
     // event-driven schedules
     pub on_resize: Schedule,
@@ -74,12 +82,14 @@ impl Default for Schedules {
         let on_init_message_setup = Schedule::new(OnInitMessageSetupSchedule);
         let on_init_render_setup = Schedule::new(OnInitRenderSetupSchedule);
         let on_init_app_setup = Schedule::new(OnInitAppSetupSchedule);
+        let on_init_menu_setup = Schedule::new(OnInitMenuSetupSchedule);
 
         // per-frame schedules
         let on_redraw_pre_frame = Schedule::new(OnRedrawPreFrameSchedule);
         let on_redraw_render = Schedule::new(OnRedrawRenderSchedule);
         let on_redraw_post_frame = Schedule::new(OnRedrawPostFrameSchedule);
         let on_redraw_message_update = Schedule::new(OnRedrawMessageUpdateSchedule);
+        let on_redraw_menu_update = Schedule::new(OnRedrawMenuUpdateSchedule);
 
         // event-driven schedules
         let on_resize = Schedule::new(OnResizeSchedule);
@@ -93,6 +103,8 @@ impl Default for Schedules {
             on_redraw_post_frame,
             on_redraw_message_update,
             on_resize,
+            on_init_menu_setup,
+            on_redraw_menu_update,
         };
 
         schedules.on_init_app_setup.add_systems(
@@ -152,6 +164,10 @@ impl Default for Schedules {
             )
                 .chain(),
         );
+
+        schedules
+            .on_redraw_menu_update
+            .add_systems(menu::diagnostics::diagnostics_menu);
 
         schedules.on_resize.add_systems(
             (

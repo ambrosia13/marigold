@@ -3,18 +3,23 @@ use std::sync::Arc;
 use bevy_ecs::world::World;
 use winit::{
     application::ApplicationHandler,
-    event::WindowEvent,
+    event::{ElementState, WindowEvent},
     event_loop::{ActiveEventLoop, EventLoop},
-    window::{Window, WindowAttributes},
+    keyboard::KeyCode,
+    window::{CursorGrabMode, Window, WindowAttributes},
 };
 
-use crate::app::{
-    messages::{KeyInputMessage, MouseInputMessage},
-    render::{FrameRecord, SurfaceState},
-    schedules::Schedules,
+use crate::{
+    app::{
+        messages::{KeyInputMessage, MouseInputMessage},
+        render::{FrameRecord, SurfaceState},
+        schedules::Schedules,
+    },
+    egui::EguiRenderState,
 };
 
 pub mod data;
+pub mod menu;
 // pub mod debug_menu;
 pub mod messages;
 pub mod pass;
@@ -52,10 +57,28 @@ pub fn run() {
     event_loop.run_app(&mut app).unwrap();
 }
 
+// toggle with Esc
+#[derive(Default, PartialEq, Eq, Clone, Copy)]
+enum FocusState {
+    #[default]
+    Renderer,
+    Menu,
+}
+
+// toggle with F1
+#[derive(Default, PartialEq, Eq, Clone, Copy)]
+enum MenuState {
+    #[default]
+    Shown,
+    Hidden,
+}
+
 struct AppState {
     window: Arc<Window>,
     world: World,
     schedules: Schedules,
+    focus_state: FocusState,
+    menu_state: MenuState,
 }
 
 impl AppState {
@@ -68,19 +91,30 @@ impl AppState {
         let mut schedules = Schedules::default();
 
         let surface_state = pollster::block_on(SurfaceState::new(window.clone()))?;
+        let egui_render_state = EguiRenderState::new(
+            &surface_state.gpu.device,
+            surface_state.config.format,
+            None,
+            1,
+            &window,
+        );
 
         // initial world data
+        world.insert_non_send_resource(egui_render_state);
         world.insert_resource(surface_state);
 
         // run startup systems
         schedules.on_init_message_setup.run(&mut world);
         schedules.on_init_app_setup.run(&mut world);
         schedules.on_init_render_setup.run(&mut world);
+        schedules.on_init_menu_setup.run(&mut world);
 
         Ok(Self {
             window,
             world,
             schedules,
+            focus_state: Default::default(),
+            menu_state: Default::default(),
         })
     }
 }
@@ -106,6 +140,8 @@ impl ApplicationHandler for App {
             window,
             world,
             schedules,
+            focus_state,
+            menu_state,
         }) = &mut self.state
         else {
             return;
@@ -115,13 +151,76 @@ impl ApplicationHandler for App {
             return;
         }
 
+        if *focus_state == FocusState::Menu && *menu_state == MenuState::Shown {
+            // allow egui to process
+            let mut egui_render_state = world.non_send_resource_mut::<EguiRenderState>();
+            egui_render_state.handle_input(window, &event);
+        }
+
+        // update cursor confinement depending on state
+        match *focus_state {
+            FocusState::Renderer => {
+                window
+                    .set_cursor_grab(CursorGrabMode::Confined)
+                    .or_else(|_e| window.set_cursor_grab(CursorGrabMode::Locked))
+                    .unwrap();
+
+                window.set_cursor_visible(false);
+            }
+            FocusState::Menu => {
+                window.set_cursor_grab(CursorGrabMode::None).unwrap();
+                window.set_cursor_visible(true);
+            }
+        }
+
         match event {
             // input events
             WindowEvent::KeyboardInput { event, .. } => {
-                world.write_message(KeyInputMessage(event));
+                if event.physical_key == KeyCode::Escape
+                    && event.state == ElementState::Pressed
+                    && !event.repeat
+                {
+                    *focus_state = match *focus_state {
+                        FocusState::Renderer => {
+                            log::info!("focus changed to menu, unlocking cursor");
+                            FocusState::Menu
+                        }
+                        FocusState::Menu => {
+                            log::info!("focus changed to renderer, locking cursor");
+                            FocusState::Renderer
+                        }
+                    }
+                }
+
+                if event.physical_key == KeyCode::F1
+                    && event.state == ElementState::Pressed
+                    && !event.repeat
+                {
+                    *menu_state = match *menu_state {
+                        MenuState::Shown => {
+                            log::info!("menu hidden, changing focus to renderer");
+                            // focus on the renderer if menu is hidden
+                            *focus_state = FocusState::Renderer;
+                            MenuState::Hidden
+                        }
+                        MenuState::Hidden => {
+                            log::info!("menu shown");
+                            MenuState::Shown
+                        }
+                    }
+                }
+
+                // send to the app if not focused on menu, otherwise egui will process
+                if *focus_state == FocusState::Renderer {
+                    world.write_message(KeyInputMessage(event));
+                }
             }
             WindowEvent::MouseInput { state, button, .. } => {
-                world.write_message(MouseInputMessage { state, button });
+                // send to app if not focused on menu, otherwise egui will process
+                #[allow(clippy::collapsible_match)]
+                if *focus_state == FocusState::Renderer {
+                    world.write_message(MouseInputMessage { state, button });
+                }
             }
             WindowEvent::MouseWheel { delta: _, .. } => {}
 
@@ -142,6 +241,8 @@ impl ApplicationHandler for App {
 
                 // initialize frame
                 let surface_state = world.resource::<SurfaceState>();
+                let gpu = surface_state.gpu.clone();
+
                 let frame = match surface_state.begin_frame() {
                     Ok(r) => r,
                     Err(
@@ -164,20 +265,48 @@ impl ApplicationHandler for App {
                     }
                 };
 
-                // render the frame
+                // need lifetime/borrowing shenanigans because we manually render egui rather than put it in a system
+                let surface_texture_view = frame.surface_texture_view.clone();
+
+                let mut egui_render_state = world.non_send_resource_mut::<EguiRenderState>();
+                egui_render_state.begin_frame(window);
+
+                // pass the frame ownership over to the world
                 world.insert_resource(frame);
+
+                // render the frame
                 schedules.on_redraw_render.run(world);
 
-                // clean up and prepare to present
+                // now that the frame has been rendered, take frame data back so we can draw egui on top
+                let mut frame = world.remove_resource::<FrameRecord>().unwrap();
+
+                let mut egui_render_state = world.non_send_resource_mut::<EguiRenderState>();
+                egui_render_state.end_frame_and_draw(
+                    &gpu.device,
+                    &gpu.queue,
+                    &mut frame.encoder,
+                    window,
+                    &surface_texture_view,
+                    egui_wgpu::ScreenDescriptor {
+                        size_in_pixels: [window.inner_size().width, window.inner_size().height],
+                        pixels_per_point: window.scale_factor() as f32,
+                    },
+                );
+
+                // clean up and present the frame
                 window.pre_present_notify();
 
-                let frame = world.remove_resource::<FrameRecord>().unwrap();
                 let surface_state = world.resource::<SurfaceState>();
-
                 surface_state.finish_frame(frame);
 
                 // run the post-render systems
                 schedules.on_redraw_post_frame.run(world);
+
+                // menu systems only run if menu is shown
+                if *menu_state == MenuState::Shown {
+                    schedules.on_redraw_menu_update.run(world);
+                }
+
                 schedules.on_redraw_message_update.run(world);
             }
             _ => {}
