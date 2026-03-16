@@ -20,7 +20,7 @@ use bevy_ecs::schedule::{IntoScheduleConfigs, Schedule, ScheduleLabel};
 
 use crate::app::{
     data::{camera, input, time},
-    debug_menu,
+    // debug_menu,
     messages::{
         KeyInputMessage, MouseInputMessage, MouseMotionMessage, init_message_type,
         update_message_type,
@@ -101,7 +101,7 @@ impl Default for Schedules {
                 (
                     input::Input::init,
                     camera::Camera::init,
-                    debug_menu::DebugMenus::init,
+                    // debug_menu::DebugMenus::init,
                 ),
             )
                 .chain(),
@@ -110,7 +110,7 @@ impl Default for Schedules {
         schedules.on_init_render_setup.add_systems(
             (
                 camera::ScreenBinding::init,
-                debug_menu::DebugMenuBinding::init,
+                // debug_menu::DebugMenuBinding::init,
                 (
                     geometry::GeometryTextures::init,
                     geometry::GeometryCommon::init, // doesn't need to run on resize
@@ -134,7 +134,7 @@ impl Default for Schedules {
             (
                 (
                     camera::ScreenBinding::update,
-                    debug_menu::DebugMenuBinding::update,
+                    // debug_menu::DebugMenuBinding::update,
                 ),
                 geometry::draw_geometry,
                 post::PostTextures::update, // copy geometry output to post texture input
@@ -148,7 +148,7 @@ impl Default for Schedules {
             (
                 input::Input::update,
                 time::Time::update,
-                debug_menu::DebugMenus::update,
+                // debug_menu::DebugMenus::update,
             )
                 .chain(),
         );

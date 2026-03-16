@@ -17,6 +17,7 @@ bevy_ecs = { version = "0.18.1", features = ["debug"] }
 glam = "0.30.9"
 
 # user interface
+egui = { git = "https://github.com/ambrosia13/egui" }
 egui-wgpu = { git = "https://github.com/ambrosia13/egui" }
 egui-winit = { git = "https://github.com/ambrosia13/egui" }
 

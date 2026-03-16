@@ -955,6 +955,7 @@ dependencies = [
  "bytemuck",
  "ecolor",
  "emath",
+ "epaint_default_fonts",
  "font-types",
  "log",
  "nohash-hasher",
@@ -965,6 +966,10 @@ dependencies = [
  "smallvec",
  "vello_cpu",
 ]
+
+[[package]]
+name = "epaint_default_fonts"
+version = "0.33.3"
 
 [[package]]
 name = "equivalent"
@@ -1824,6 +1829,7 @@ dependencies = [
  "bytemuck",
  "chrono",
  "derived-deref",
+ "egui",
  "egui-wgpu",
  "egui-winit",
  "env_logger",

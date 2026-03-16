@@ -1,6 +1,7 @@
 use env_logger::Env;
 
 mod app;
+mod egui;
 mod util;
 
 fn main() {

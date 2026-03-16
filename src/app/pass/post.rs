@@ -10,7 +10,7 @@ use glam::UVec3;
 use crate::{
     app::{
         data::camera::ScreenBinding,
-        debug_menu::DebugMenuBinding,
+        // debug_menu::DebugMenuBinding,
         pass::geometry::GeometryTextures,
         render::{FrameRecord, SurfaceState},
     },
@@ -396,7 +396,7 @@ impl PostPasses {
     pub fn init(world: &mut World) {
         let passes: Vec<Box<dyn PostPass>> = vec![
             Box::new(DummyPostPass::new(world)),
-            Box::new(MenuPass::new(world)),
+            // Box::new(MenuPass::new(world)),
         ];
         let passes = Arc::new(passes);
 
@@ -502,88 +502,88 @@ impl PostPass for DummyPostPass {
     }
 }
 
-pub struct MenuPass {
-    pipeline: wgpu::ComputePipeline,
-}
+// pub struct MenuPass {
+//     pipeline: wgpu::ComputePipeline,
+// }
 
-impl MenuPass {
-    pub fn new(world: &mut World) -> Self {
-        let surface_state = world.resource::<SurfaceState>();
-        let screen_binding = world.resource::<ScreenBinding>();
-        let post_textures = world.resource::<PostTextures>();
-        let menu_binding = world.resource::<DebugMenuBinding>();
+// impl MenuPass {
+//     pub fn new(world: &mut World) -> Self {
+//         let surface_state = world.resource::<SurfaceState>();
+//         let screen_binding = world.resource::<ScreenBinding>();
+//         let post_textures = world.resource::<PostTextures>();
+//         let menu_binding = world.resource::<DebugMenuBinding>();
 
-        let gpu = &surface_state.gpu;
+//         let gpu = &surface_state.gpu;
 
-        let pipeline_layout = gpu
-            .device
-            .create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                label: Some("menu_pipeline_layout"),
-                bind_group_layouts: &[
-                    &screen_binding.bind_group_layout,
-                    &post_textures.bind_group_layout,
-                    &menu_binding.bind_group_layout,
-                ],
-                immediate_size: 0,
-            });
+//         let pipeline_layout = gpu
+//             .device
+//             .create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+//                 label: Some("menu_pipeline_layout"),
+//                 bind_group_layouts: &[
+//                     &screen_binding.bind_group_layout,
+//                     &post_textures.bind_group_layout,
+//                     &menu_binding.bind_group_layout,
+//                 ],
+//                 immediate_size: 0,
+//             });
 
-        let shader_source = util::get_spirv_source("menu.slang");
-        let shader_module = gpu.create_shader_module("menu", shader_source.into());
+//         let shader_source = util::get_spirv_source("menu.slang");
+//         let shader_module = gpu.create_shader_module("menu", shader_source.into());
 
-        let pipeline = gpu
-            .device
-            .create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
-                label: Some("menu_pipeline"),
-                layout: Some(&pipeline_layout),
-                module: &shader_module,
-                entry_point: Some("compute"),
-                compilation_options: Default::default(),
-                cache: None,
-            });
+//         let pipeline = gpu
+//             .device
+//             .create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+//                 label: Some("menu_pipeline"),
+//                 layout: Some(&pipeline_layout),
+//                 module: &shader_module,
+//                 entry_point: Some("compute"),
+//                 compilation_options: Default::default(),
+//                 cache: None,
+//             });
 
-        log::info!("created menu post pass");
+//         log::info!("created menu post pass");
 
-        Self { pipeline }
-    }
-}
+//         Self { pipeline }
+//     }
+// }
 
-impl PostPass for MenuPass {
-    fn run(&self, world: &mut World) {
-        let mut post_textures = world.resource_mut::<PostTextures>();
-        let texture_state = post_textures.write();
+// impl PostPass for MenuPass {
+//     fn run(&self, world: &mut World) {
+//         let mut post_textures = world.resource_mut::<PostTextures>();
+//         let texture_state = post_textures.write();
 
-        // log::info!("menu post texture state: {}", texture_state.state());
+//         // log::info!("menu post texture state: {}", texture_state.state());
 
-        let screen_binding = world.resource::<ScreenBinding>();
-        let screen_bind_group = screen_binding.bind_group.clone();
+//         let screen_binding = world.resource::<ScreenBinding>();
+//         let screen_bind_group = screen_binding.bind_group.clone();
 
-        let menu_binding = world.resource::<DebugMenuBinding>();
-        let menu_bind_group = menu_binding.bind_group.clone();
+//         let menu_binding = world.resource::<DebugMenuBinding>();
+//         let menu_bind_group = menu_binding.bind_group.clone();
 
-        let surface_state = world.resource::<SurfaceState>();
-        let workgroups = util::get_workgroup_count_from_size(
-            UVec3::new(8, 8, 1),
-            UVec3 {
-                x: surface_state.config.width,
-                y: surface_state.config.height,
-                z: 1,
-            },
-        );
+//         let surface_state = world.resource::<SurfaceState>();
+//         let workgroups = util::get_workgroup_count_from_size(
+//             UVec3::new(8, 8, 1),
+//             UVec3 {
+//                 x: surface_state.config.width,
+//                 y: surface_state.config.height,
+//                 z: 1,
+//             },
+//         );
 
-        let mut frame = world.resource_mut::<FrameRecord>();
+//         let mut frame = world.resource_mut::<FrameRecord>();
 
-        let mut compute_pass = frame
-            .encoder
-            .begin_compute_pass(&wgpu::ComputePassDescriptor {
-                label: Some("menu_pass"),
-                timestamp_writes: None,
-            });
+//         let mut compute_pass = frame
+//             .encoder
+//             .begin_compute_pass(&wgpu::ComputePassDescriptor {
+//                 label: Some("menu_pass"),
+//                 timestamp_writes: None,
+//             });
 
-        compute_pass.set_pipeline(&self.pipeline);
-        compute_pass.set_bind_group(0, &screen_bind_group, &[]);
-        compute_pass.set_bind_group(1, &texture_state.bind_group, &[]);
-        compute_pass.set_bind_group(2, &menu_bind_group, &[]);
+//         compute_pass.set_pipeline(&self.pipeline);
+//         compute_pass.set_bind_group(0, &screen_bind_group, &[]);
+//         compute_pass.set_bind_group(1, &texture_state.bind_group, &[]);
+//         compute_pass.set_bind_group(2, &menu_bind_group, &[]);
 
-        compute_pass.dispatch_workgroups(workgroups.x, workgroups.y, workgroups.z);
-    }
-}
+//         compute_pass.dispatch_workgroups(workgroups.x, workgroups.y, workgroups.z);
+//     }
+// }
