@@ -1,16 +1,11 @@
-module pathtrace;
-
-import lib.pass.geometry;
 import lib.screen;
-import lib.random;
-import lib.math;
+import lib.pass.post;
 
 [[numthreads(8, 8, 1)]]
 [[shader("compute")]]
 void compute(
     uniform ParameterBlock<Screen> screen,
-
-    uniform ParameterBlock<GeometryTextures> textures,
+    uniform ParameterBlock<PostTextureState> textures,
     
     uint3 globalInvocationId: SV_DispatchThreadID,
     uint3 localInvocationId: SV_GroupThreadID,
@@ -20,6 +15,5 @@ void compute(
         return;
     }
 
-    float2 texcoord = float2(globalInvocationId.xy) / float2(screen.view.width, screen.view.height);
-    textures.current.Store(globalInvocationId.xy, float4(texcoord, 0.0, 1.0));
+    textures.outputTexture.Store(globalInvocationId.xy, textures.inputTexture.Load(int3(globalInvocationId.xy, 0)));
 }

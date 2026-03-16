@@ -33,16 +33,16 @@ pub struct GpuHandle {
 
 impl GpuHandle {
     pub fn create_shader_module(&self, label: &str, source: Cow<'_, [u32]>) -> wgpu::ShaderModule {
-        #[cfg(debug_assertions)]
-        return self
-            .device
-            .create_shader_module(wgpu::ShaderModuleDescriptor {
-                label: Some(label),
-                source: wgpu::ShaderSource::SpirV(source),
-            });
+        // #[cfg(debug_assertions)]
+        // return self
+        //     .device
+        //     .create_shader_module(wgpu::ShaderModuleDescriptor {
+        //         label: Some(label),
+        //         source: wgpu::ShaderSource::SpirV(source),
+        //     });
 
-        // use passthrough shader modules when in release mode so we don't needlessly send spirv shaders through naga
-        #[cfg(not(debug_assertions))]
+        // // use passthrough shader modules when in release mode so we don't needlessly send spirv shaders through naga
+        // #[cfg(not(debug_assertions))]
         unsafe {
             self.device
                 .create_shader_module_passthrough(wgpu::ShaderModuleDescriptorPassthrough {

@@ -98,7 +98,11 @@ impl Default for Schedules {
         schedules.on_init_app_setup.add_systems(
             (
                 time::Time::init,
-                (input::Input::init, camera::Camera::init, menu::Menus::init),
+                (
+                    input::Input::init,
+                    camera::Camera::init,
+                    menu::DebugMenus::init,
+                ),
             )
                 .chain(),
         );
@@ -106,11 +110,13 @@ impl Default for Schedules {
         schedules.on_init_render_setup.add_systems(
             (
                 camera::ScreenBinding::init,
+                menu::DebugMenuBinding::init,
                 (
                     geometry::GeometryTextures::init,
                     geometry::GeometryCommon::init, // doesn't need to run on resize
                     geometry::create_pathtrace_pipeline,
                     post::PostTextures::init,
+                    post::PostPasses::init,
                     display::DisplayPass::init,
                 )
                     .chain(),
@@ -126,8 +132,13 @@ impl Default for Schedules {
 
         schedules.on_redraw_render.add_systems(
             (
-                camera::ScreenBinding::update,
+                (
+                    camera::ScreenBinding::update,
+                    menu::DebugMenuBinding::update,
+                ),
                 geometry::draw_geometry,
+                post::PostTextures::update, // copy geometry output to post texture input
+                post::PostPasses::update,
                 display::DisplayPass::update,
             )
                 .chain(),
@@ -137,7 +148,7 @@ impl Default for Schedules {
             (
                 input::Input::update,
                 time::Time::update,
-                menu::Menus::update,
+                menu::DebugMenus::update,
             )
                 .chain(),
         );

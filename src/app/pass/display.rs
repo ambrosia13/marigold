@@ -17,8 +17,9 @@ pub struct DisplayPass {
 
     sampler: wgpu::Sampler,
 
-    bind_group: wgpu::BindGroup,
     bind_group_layout: wgpu::BindGroupLayout,
+    bind_group_main: wgpu::BindGroup,
+    bind_group_alt: wgpu::BindGroup,
 }
 
 impl DisplayPass {
@@ -27,10 +28,10 @@ impl DisplayPass {
         surface_state: Res<SurfaceState>,
         post_textures: Res<PostTextures>,
     ) {
-        // the last output of the post textures is the input to the display pass
-        let (input_texture, input_texture_view) = post_textures.current_output();
+        log::info!("beginning creation of display pass");
 
-        let sample_type = input_texture
+        let sample_type = post_textures
+            .main
             .format()
             .sample_type(None, Some(surface_state.gpu.device.features()))
             .unwrap();
@@ -69,23 +70,43 @@ impl DisplayPass {
                     ],
                 });
 
-        let bind_group = surface_state
-            .gpu
-            .device
-            .create_bind_group(&wgpu::BindGroupDescriptor {
-                label: Some("display_bind_group"),
-                layout: &bind_group_layout,
-                entries: &[
-                    wgpu::BindGroupEntry {
-                        binding: 0,
-                        resource: wgpu::BindingResource::TextureView(&input_texture_view),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 1,
-                        resource: wgpu::BindingResource::Sampler(&sampler),
-                    },
-                ],
-            });
+        let bind_group_main =
+            surface_state
+                .gpu
+                .device
+                .create_bind_group(&wgpu::BindGroupDescriptor {
+                    label: Some("display_bind_group_alt"),
+                    layout: &bind_group_layout,
+                    entries: &[
+                        wgpu::BindGroupEntry {
+                            binding: 0,
+                            resource: wgpu::BindingResource::TextureView(&post_textures.main_view),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 1,
+                            resource: wgpu::BindingResource::Sampler(&sampler),
+                        },
+                    ],
+                });
+
+        let bind_group_alt =
+            surface_state
+                .gpu
+                .device
+                .create_bind_group(&wgpu::BindGroupDescriptor {
+                    label: Some("display_bind_group_alt"),
+                    layout: &bind_group_layout,
+                    entries: &[
+                        wgpu::BindGroupEntry {
+                            binding: 0,
+                            resource: wgpu::BindingResource::TextureView(&post_textures.alt_view),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 1,
+                            resource: wgpu::BindingResource::Sampler(&sampler),
+                        },
+                    ],
+                });
 
         let pipeline_layout =
             surface_state
@@ -145,15 +166,28 @@ impl DisplayPass {
         let display_binding = Self {
             pipeline,
             sampler,
-            bind_group,
             bind_group_layout,
+            bind_group_main,
+            bind_group_alt,
         };
 
         commands.insert_resource(display_binding);
         log::info!("created display pass");
     }
 
-    pub fn update(display_pass: Res<Self>, mut frame: ResMut<FrameRecord>) {
+    pub fn update(
+        post_textures: Res<PostTextures>,
+        display_pass: Res<Self>,
+        mut frame: ResMut<FrameRecord>,
+    ) {
+        let bind_group = if post_textures.swapped {
+            // log::info!("blitting alt texture to surface");
+            &display_pass.bind_group_alt
+        } else {
+            // log::info!("blitting main texture to surface");
+            &display_pass.bind_group_main
+        };
+
         let view = frame.surface_texture_view.clone();
 
         let mut render_pass = frame
@@ -175,7 +209,7 @@ impl DisplayPass {
                 multiview_mask: None,
             });
 
-        render_pass.set_bind_group(0, &display_pass.bind_group, &[]);
+        render_pass.set_bind_group(0, bind_group, &[]);
 
         render_pass.set_pipeline(&display_pass.pipeline);
 

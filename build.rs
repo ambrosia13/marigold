@@ -5,12 +5,6 @@ use std::io::Write;
 use std::path::Path;
 use std::process::Command;
 
-fn print_warning(msg: &str) {
-    for line in msg.trim().lines() {
-        println!("cargo:warning={}", line);
-    }
-}
-
 #[derive(PartialEq)]
 #[allow(unused)]
 enum CompileTarget {

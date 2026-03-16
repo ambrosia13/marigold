@@ -22,19 +22,15 @@ pub fn get_shader_path<P: AsRef<Path>>(shader_location: P) -> PathBuf {
 pub fn get_spirv_source<P: AsRef<Path>>(shader_location: P) -> Vec<u32> {
     std::fs::read(get_shader_path(&shader_location))
         .map(|source| wgpu::util::make_spirv_raw(&source).to_vec())
-        .unwrap_or_else(|_| {
+        .unwrap_or_else(|err| {
             panic!(
-                "unable to read spir-v source for {}",
-                shader_location.as_ref().to_string_lossy()
+                "unable to read spir-v source for {}; error: {}",
+                shader_location.as_ref().to_string_lossy(),
+                err
             )
         })
 }
 
 pub fn get_workgroup_count_from_size(workgroup_size: UVec3, dimensions: UVec3) -> UVec3 {
-    let mut workgroups = dimensions / workgroup_size;
-
-    // Add an extra workgroup in each dimension if the number we calculated doesn't cover the whole dimensions
-    workgroups += (dimensions % workgroups) & UVec3::ONE;
-
-    workgroups
+    (dimensions + workgroup_size - UVec3::ONE) / workgroup_size
 }

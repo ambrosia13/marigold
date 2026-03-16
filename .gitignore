@@ -1,3 +1,5 @@
 target
 assets/shaders/target
 shader_compile_errors
+renderdoc
+.cargo

@@ -13,8 +13,12 @@ wgpu = { version = "28.0.0", features = ["vulkan-portability", "spirv"] }
 winit = "0.30.12"
 
 # game engine stuff
-bevy_ecs = "0.17.3"
+bevy_ecs = { version = "0.18.1", features = ["debug"] }
 glam = "0.30.9"
+
+# user interface
+egui-wgpu = { git = "https://github.com/ambrosia13/egui" }
+egui-winit = { git = "https://github.com/ambrosia13/egui" }
 
 # logging
 env_logger = "0.11.8"

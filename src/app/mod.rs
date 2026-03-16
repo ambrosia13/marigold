@@ -22,7 +22,31 @@ pub mod render;
 pub mod schedules;
 
 pub fn run() {
-    let event_loop = EventLoop::new().expect("Couldn't create window event loop");
+    let mut event_loop = EventLoop::builder();
+
+    #[cfg(all(unix, not(target_os = "macos")))]
+    {
+        if let Ok(env_var) = std::env::var("WINIT_UNIX_BACKEND") {
+            match env_var.as_str() {
+                "x11" => {
+                    use winit::platform::x11::EventLoopBuilderExtX11;
+
+                    event_loop.with_x11();
+                }
+                "wayland" => {
+                    use winit::platform::wayland::EventLoopBuilderExtWayland;
+
+                    event_loop.with_wayland();
+                }
+                _ => panic!("WINIT_UNIX_BACKEND must be one of `x11` or `wayland`"),
+            }
+        }
+    }
+
+    let event_loop = event_loop
+        .build()
+        .expect("Couldn't create window event loop");
+
     let mut app = App { state: None };
 
     event_loop.run_app(&mut app).unwrap();
@@ -36,7 +60,7 @@ struct AppState {
 
 impl AppState {
     pub fn init(event_loop: &ActiveEventLoop) -> anyhow::Result<Self> {
-        let window_attributes = WindowAttributes::default().with_title("mountain climber");
+        let window_attributes = WindowAttributes::default().with_title("marigold renderer");
 
         let window = Arc::new(event_loop.create_window(window_attributes)?);
 
@@ -50,8 +74,8 @@ impl AppState {
 
         // run startup systems
         schedules.on_init_message_setup.run(&mut world);
-        schedules.on_init_render_setup.run(&mut world);
         schedules.on_init_app_setup.run(&mut world);
+        schedules.on_init_render_setup.run(&mut world);
 
         Ok(Self {
             window,

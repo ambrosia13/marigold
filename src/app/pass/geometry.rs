@@ -29,6 +29,8 @@ pub struct GeometryTextures {
 
 impl GeometryTextures {
     pub fn init(mut commands: Commands, surface_state: Res<SurfaceState>) {
+        log::info!("beginning creation of geometry pass textures");
+
         let gpu = &surface_state.gpu;
 
         let current_desc = wgpu::TextureDescriptor {

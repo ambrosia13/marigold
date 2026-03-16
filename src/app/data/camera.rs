@@ -207,6 +207,8 @@ pub struct ScreenBinding {
 
 impl ScreenBinding {
     pub fn init(mut commands: Commands, surface_state: Res<SurfaceState>) {
+        log::info!("beginning creation of screen uniforms and binding");
+
         // use default values when creating
         let camera_uniform = CameraUniform::default();
         let view_uniform = ViewUniform::default();
