@@ -10,7 +10,7 @@ use glam::UVec3;
 use crate::{
     app::{
         data::camera::ScreenBinding,
-        menu::DebugMenuBinding,
+        debug_menu::DebugMenuBinding,
         pass::geometry::GeometryTextures,
         render::{FrameRecord, SurfaceState},
     },

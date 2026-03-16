@@ -15,7 +15,7 @@ use crate::app::{
 };
 
 pub mod data;
-pub mod menu;
+pub mod debug_menu;
 pub mod messages;
 pub mod pass;
 pub mod render;
