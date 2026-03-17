@@ -30,9 +30,5 @@ void compute(
 
     float3 color = background.texture.SampleLevel(background.sampler, viewDir, 0).rgb;
 
-    // if (texcoord.x < 0.5) {
-    //     color = viewDir;
-    // }
-
     textures.current.Store(globalInvocationId.xy, float4(color, 1.0));
 }

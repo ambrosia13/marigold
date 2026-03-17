@@ -47,7 +47,7 @@ float4 render(float3 viewDir, Screen screen, AtmosphereParams atmosphereParams, 
         skyViewLuts.night
     );
 
-    color *= 4.0;
+    color *= 5.0;
 
     return float4(color, 1.0);
 }
