@@ -274,7 +274,7 @@ pub fn atmosphere_menu(
                 *atmosphere_params = local_params.clone();
             }
 
-            if *automatically_apply_changes && !local_params.should_rebake(&atmosphere_params) {
+            if *automatically_apply_changes && *local_params != *atmosphere_params && !local_params.should_rebake(&atmosphere_params) {
                 // if the changes won't cause a rebake, automatically apply them
                 log::info!("Automatically applying editor changes to atmosphere params");
                 *atmosphere_params = local_params.clone();
