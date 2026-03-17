@@ -1,9 +1,12 @@
 use chrono::{DateTime, Local};
+use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
 use regex::Regex;
-use std::fs::File;
-use std::io::{ErrorKind, Write};
+use std::fmt::Write;
+use std::fs::{DirEntry, File};
+use std::io::{ErrorKind, Write as IoWrite};
 use std::path::Path;
 use std::process::Command;
+use std::sync::mpsc::{self, Sender};
 
 #[derive(PartialEq)]
 #[allow(unused)]
@@ -23,7 +26,9 @@ fn has_entrypoint(pattern: &Regex, path: &Path) -> bool {
     pattern.is_match(&source)
 }
 
-fn compile(slangc: &str, regex: &Regex, log_file: &mut Option<File>, path: &Path) {
+fn compile(slangc: &str, regex: &Regex, errors: Sender<String>, path: &Path) {
+    // println!("cargo:warning=processing: {}", path.to_string_lossy());
+
     if !path.is_dir() {
         if !has_entrypoint(regex, path) {
             return;
@@ -38,7 +43,7 @@ fn compile(slangc: &str, regex: &Regex, log_file: &mut Option<File>, path: &Path
                 break;
             }
 
-            println!("cargo:warning=ancesor = {}", ancestor.to_string_lossy());
+            // println!("cargo:warning=ancesor = {}", ancestor.to_string_lossy());
             match std::fs::create_dir(ancestor).map_err(|e| e.kind()) {
                 Ok(_) => {}
                 Err(ErrorKind::AlreadyExists) => {}
@@ -77,26 +82,30 @@ fn compile(slangc: &str, regex: &Regex, log_file: &mut Option<File>, path: &Path
         let output = cmd.output().unwrap();
 
         if !output.status.success() {
-            let log_file = match log_file {
-                Some(file) => file,
-                None => {
-                    // create the file and use it
-                    *log_file = Some(update_log());
-                    log_file.as_mut().unwrap()
-                }
-            };
+            // let log_file = match log_file {
+            //     Some(file) => file,
+            //     None => {
+            //         // create the file and use it
+            //         *log_file = Some(update_log());
+            //         log_file.as_mut().unwrap()
+            //     }
+            // };
 
             let stdout = String::from_utf8(output.stdout).unwrap();
             let stderr = String::from_utf8(output.stderr).unwrap();
 
+            let mut error = String::new();
+
             writeln!(
-                log_file,
+                &mut error,
                 "{}\nstdout:\n{}\n\nstderr:\n{}\n",
                 path.to_string_lossy(),
                 stdout,
                 stderr
             )
             .expect("unable to write to shader compilation log file");
+
+            errors.send(error).expect("failed to send shader error");
 
             println!(
                 "cargo:warning=Failed to compile {} into {}, putting detailed compiler error in {}/latest.log",
@@ -109,9 +118,19 @@ fn compile(slangc: &str, regex: &Regex, log_file: &mut Option<File>, path: &Path
         return;
     }
 
-    for entry in std::fs::read_dir(path).unwrap() {
-        compile(slangc, regex, log_file, &entry.unwrap().path());
-    }
+    let entries: Vec<DirEntry> = std::fs::read_dir(path)
+        .unwrap()
+        .map(|e| e.unwrap())
+        .collect();
+
+    rayon::scope(|s| {
+        entries.par_iter().for_each(|e| {
+            let errors = errors.clone();
+            s.spawn(move |_| {
+                compile(slangc, regex, errors, &e.path());
+            })
+        });
+    });
 }
 
 fn update_log() -> File {
@@ -146,14 +165,24 @@ fn main() {
         _ => String::from("slangc"),
     };
 
+    let (tx, rx) = mpsc::channel();
+
+    compile(&slangc, &entrypoint_regex, tx, Path::new(INPUT_DIRECTORY));
+
     let mut log_file: Option<File> = None;
 
-    compile(
-        &slangc,
-        &entrypoint_regex,
-        &mut log_file,
-        Path::new(INPUT_DIRECTORY),
-    );
+    for error in rx.iter() {
+        let log_file = match &mut log_file {
+            Some(file) => file,
+            None => {
+                // create the file and use it
+                log_file = Some(update_log());
+                log_file.as_mut().unwrap()
+            }
+        };
+
+        write!(log_file, "{}", error).expect("failed to write to log file");
+    }
 
     // if log_file is Some then there was at least one error
     if log_file.is_some() {
