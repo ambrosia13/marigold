@@ -1,6 +1,6 @@
 module random;
 
-import math;
+import "math";
 
 void pcg(inout uint seed) {
     uint state = seed * 747796405 + 2891336453;

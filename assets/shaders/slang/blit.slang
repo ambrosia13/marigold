@@ -1,6 +1,6 @@
 module blit;
 
-import lib.vertex;
+import "lib/vertex";
 
 struct TextureInput {
     SamplerState sampler;

@@ -1,7 +1,7 @@
 use chrono::{DateTime, Local};
 use regex::Regex;
 use std::fs::File;
-use std::io::Write;
+use std::io::{ErrorKind, Write};
 use std::path::Path;
 use std::process::Command;
 
@@ -31,6 +31,20 @@ fn compile(slangc: &str, regex: &Regex, log_file: &mut Option<File>, path: &Path
 
         let relative_input_path = path.strip_prefix(INPUT_DIRECTORY).unwrap();
         let mut output_path = Path::new(OUTPUT_DIRECTORY).join(relative_input_path);
+
+        for ancestor in output_path.ancestors().skip(1) {
+            // avoid recursing too far back
+            if !ancestor.starts_with(INPUT_DIRECTORY) {
+                break;
+            }
+
+            println!("cargo:warning=ancesor = {}", ancestor.to_string_lossy());
+            match std::fs::create_dir(ancestor).map_err(|e| e.kind()) {
+                Ok(_) => {}
+                Err(ErrorKind::AlreadyExists) => {}
+                Err(_) => panic!("failed to create parent directory"),
+            }
+        }
 
         // remove the extension
         output_path.set_extension("");

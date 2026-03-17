@@ -24,3 +24,9 @@ pub struct MouseInputMessage {
     pub state: winit::event::ElementState,
     pub button: winit::event::MouseButton,
 }
+
+#[derive(Message)]
+pub struct ExitMessage;
+
+#[derive(Message)]
+pub struct AtmosphereRebakeMessage;

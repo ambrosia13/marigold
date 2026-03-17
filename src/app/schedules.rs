@@ -19,13 +19,13 @@ Event-driven:
 use bevy_ecs::schedule::{IntoScheduleConfigs, Schedule, ScheduleLabel};
 
 use crate::app::{
-    data::{camera, input, time},
+    data::{atmosphere, camera, input, time},
     menu,
     messages::{
-        KeyInputMessage, MouseInputMessage, MouseMotionMessage, init_message_type,
-        update_message_type,
+        AtmosphereRebakeMessage, ExitMessage, KeyInputMessage, MouseInputMessage,
+        MouseMotionMessage, init_message_type, update_message_type,
     },
-    pass::{display, geometry, post},
+    pass::{background, bake, display, geometry, post},
 };
 
 #[derive(ScheduleLabel, Eq, PartialEq, Copy, Clone, Hash, Debug)]
@@ -114,6 +114,7 @@ impl Default for Schedules {
                     input::Input::init,
                     camera::Camera::init,
                     // debug_menu::DebugMenus::init,
+                    atmosphere::AtmosphereParams::init,
                 ),
             )
                 .chain(),
@@ -121,9 +122,15 @@ impl Default for Schedules {
 
         schedules.on_init_render_setup.add_systems(
             (
-                camera::ScreenBinding::init,
-                // debug_menu::DebugMenuBinding::init,
                 (
+                    camera::ScreenBinding::init,
+                    atmosphere::AtmosphereBinding::init,
+                    // debug_menu::DebugMenuBinding::init,
+                ),
+                (
+                    bake::AtmosphereBakePass::init,
+                    background::AtmosphereCubemapPass::init,
+                    background::BackgroundBinding::init,
                     geometry::GeometryTextures::init,
                     geometry::GeometryCommon::init, // doesn't need to run on resize
                     geometry::create_pathtrace_pipeline,
@@ -147,7 +154,10 @@ impl Default for Schedules {
                 (
                     camera::ScreenBinding::update,
                     // debug_menu::DebugMenuBinding::update,
+                    atmosphere::AtmosphereBinding::update,
                 ),
+                bake::AtmosphereBakePass::update,
+                background::AtmosphereCubemapPass::update,
                 geometry::draw_geometry,
                 post::PostTextures::update, // copy geometry output to post texture input
                 post::PostPasses::update,
@@ -165,9 +175,15 @@ impl Default for Schedules {
                 .chain(),
         );
 
-        schedules
-            .on_redraw_menu_update
-            .add_systems(menu::diagnostics::diagnostics_menu);
+        schedules.on_redraw_menu_update.add_systems(
+            (
+                menu::diagnostics_menu,
+                menu::controls_menu,
+                menu::camera_menu,
+                menu::atmosphere_menu,
+            )
+                .chain(),
+        );
 
         schedules.on_resize.add_systems(
             (
@@ -187,12 +203,16 @@ impl Default for Schedules {
             init_message_type::<MouseMotionMessage>,
             init_message_type::<KeyInputMessage>,
             init_message_type::<MouseInputMessage>,
+            init_message_type::<ExitMessage>,
+            init_message_type::<AtmosphereRebakeMessage>,
         ));
 
         schedules.on_redraw_message_update.add_systems((
             update_message_type::<MouseMotionMessage>,
             update_message_type::<KeyInputMessage>,
             update_message_type::<MouseInputMessage>,
+            update_message_type::<ExitMessage>,
+            update_message_type::<AtmosphereRebakeMessage>,
         ));
 
         schedules

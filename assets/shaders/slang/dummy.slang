@@ -1,5 +1,5 @@
-import lib.screen;
-import lib.pass.post;
+import "lib/screen";
+import "lib/pass/post";
 
 [[numthreads(8, 8, 1)]]
 [[shader("compute")]]

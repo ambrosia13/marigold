@@ -1,6 +1,6 @@
 module final;
 
-import lib.vertex;
+import "lib/vertex";
 
 struct PostOutput {
     Texture2D texture;

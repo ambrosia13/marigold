@@ -1,3 +1,4 @@
+pub mod atmosphere;
 pub mod camera;
 #[allow(unused)]
 pub mod input;

@@ -6,7 +6,7 @@ pub fn get_asset_path<P: AsRef<Path>>(asset_location: P) -> PathBuf {
     std::env::current_dir()
         .unwrap()
         .join("assets")
-        .join(asset_location)
+        .join(&asset_location)
 }
 
 pub fn get_shader_path<P: AsRef<Path>>(shader_location: P) -> PathBuf {
@@ -14,7 +14,13 @@ pub fn get_shader_path<P: AsRef<Path>>(shader_location: P) -> PathBuf {
     let shader_location = shader_location.as_ref().with_extension("");
 
     let mut path = get_asset_path("shaders/target");
-    path.push(shader_location);
+    path.push(&shader_location);
+
+    log::info!(
+        "Shader path '{}' resolves to '{}'",
+        shader_location.to_string_lossy(),
+        path.to_string_lossy()
+    );
 
     path
 }

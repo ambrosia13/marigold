@@ -15,10 +15,12 @@ pub const WGPU_FEATURES: wgpu::Features = wgpu::Features::FLOAT32_FILTERABLE
     .union(wgpu::Features::TIMESTAMP_QUERY)
     .union(wgpu::Features::TIMESTAMP_QUERY_INSIDE_ENCODERS)
     .union(wgpu::Features::VERTEX_WRITABLE_STORAGE)
-    .union(wgpu::Features::EXPERIMENTAL_PASSTHROUGH_SHADERS);
+    .union(wgpu::Features::EXPERIMENTAL_PASSTHROUGH_SHADERS)
+    .union(wgpu::Features::TEXTURE_FORMAT_16BIT_NORM);
 
 pub const WGPU_LIMITS: wgpu::Limits = wgpu::Limits {
     max_immediate_size: 128,
+    max_color_attachment_bytes_per_sample: 64,
     ..wgpu::Limits::defaults()
 };
 
@@ -113,14 +115,27 @@ impl SurfaceState {
             .await?;
 
         let surface_caps = surface.get_capabilities(&adapter);
-        let surface_format = surface_caps.formats[0];
+        let surface_format = surface_caps
+            .formats
+            .iter()
+            .find(|&&s| {
+                s == wgpu::TextureFormat::Bgra8Unorm || s == wgpu::TextureFormat::Rgba8Unorm
+            })
+            .copied()
+            .unwrap_or(surface_caps.formats[0]);
 
         let config = wgpu::SurfaceConfiguration {
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
             format: surface_format,
             width: viewport_size.width,
             height: viewport_size.height,
-            present_mode: wgpu::PresentMode::Fifo,
+            // prefer mailbox, otherwise fallback to fifo
+            present_mode: surface_caps
+                .present_modes
+                .iter()
+                .find(|&&p| p == wgpu::PresentMode::Mailbox)
+                .copied()
+                .unwrap_or(wgpu::PresentMode::Fifo),
             alpha_mode: surface_caps.alpha_modes[0],
             desired_maximum_frame_latency: 2,
             view_formats: vec![],

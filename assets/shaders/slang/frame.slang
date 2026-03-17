@@ -1,6 +1,6 @@
 module frame;
 
-import lib.vertex;
+import "lib/vertex";
 
 struct Vertex {
     float2 position;

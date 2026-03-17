@@ -1,17 +1,19 @@
 use std::sync::Arc;
 
-use bevy_ecs::world::World;
+use bevy_ecs::{message::Messages, world::World};
+use glam::DVec2;
 use winit::{
     application::ApplicationHandler,
     event::{ElementState, WindowEvent},
     event_loop::{ActiveEventLoop, EventLoop},
     keyboard::KeyCode,
+    platform::wayland::WindowAttributesExtWayland,
     window::{CursorGrabMode, Window, WindowAttributes},
 };
 
 use crate::{
     app::{
-        messages::{KeyInputMessage, MouseInputMessage},
+        messages::{ExitMessage, KeyInputMessage, MouseInputMessage, MouseMotionMessage},
         render::{FrameRecord, SurfaceState},
         schedules::Schedules,
     },
@@ -74,8 +76,8 @@ enum MenuState {
 }
 
 struct AppState {
-    window: Arc<Window>,
     world: World,
+    window: Arc<Window>, // this field should be dropped after world, since world contains the surface, which references the window
     schedules: Schedules,
     focus_state: FocusState,
     menu_state: MenuState,
@@ -83,7 +85,9 @@ struct AppState {
 
 impl AppState {
     pub fn init(event_loop: &ActiveEventLoop) -> anyhow::Result<Self> {
-        let window_attributes = WindowAttributes::default().with_title("marigold renderer");
+        let window_attributes = WindowAttributes::default()
+            .with_title("marigold renderer")
+            .with_name("marigold", "");
 
         let window = Arc::new(event_loop.create_window(window_attributes)?);
 
@@ -127,6 +131,33 @@ impl ApplicationHandler for App {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         if self.state.is_none() {
             self.state = Some(AppState::init(event_loop).unwrap());
+        }
+    }
+
+    fn device_event(
+        &mut self,
+        _event_loop: &ActiveEventLoop,
+        _device_id: winit::event::DeviceId,
+        event: winit::event::DeviceEvent,
+    ) {
+        #[allow(unused)]
+        let Some(AppState {
+            window,
+            world,
+            schedules,
+            focus_state,
+            menu_state,
+        }) = &mut self.state
+        else {
+            return;
+        };
+
+        #[allow(clippy::single_match)]
+        match event {
+            winit::event::DeviceEvent::MouseMotion { delta } => {
+                world.write_message(MouseMotionMessage(DVec2::new(delta.0, delta.1)));
+            }
+            _ => {}
         }
     }
 
@@ -233,6 +264,14 @@ impl ApplicationHandler for App {
                 schedules.on_resize.run(world);
             }
             WindowEvent::RedrawRequested => {
+                // check for requests to exit the program
+                if !world.resource::<Messages<ExitMessage>>().is_empty() {
+                    log::info!(
+                        "application exit was requested by a system, exiting window event loop"
+                    );
+                    event_loop.exit();
+                }
+
                 // We want another frame after this one
                 window.request_redraw();
 
@@ -277,6 +316,11 @@ impl ApplicationHandler for App {
                 // render the frame
                 schedules.on_redraw_render.run(world);
 
+                // run the menu systems, if menu is supposed to be shown
+                if *menu_state == MenuState::Shown {
+                    schedules.on_redraw_menu_update.run(world);
+                }
+
                 // now that the frame has been rendered, take frame data back so we can draw egui on top
                 let mut frame = world.remove_resource::<FrameRecord>().unwrap();
 
@@ -301,11 +345,6 @@ impl ApplicationHandler for App {
 
                 // run the post-render systems
                 schedules.on_redraw_post_frame.run(world);
-
-                // menu systems only run if menu is shown
-                if *menu_state == MenuState::Shown {
-                    schedules.on_redraw_menu_update.run(world);
-                }
 
                 schedules.on_redraw_message_update.run(world);
             }
