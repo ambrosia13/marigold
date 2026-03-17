@@ -4,6 +4,7 @@ use bevy_ecs::resource::Resource;
 use wgpu::SurfaceError;
 use winit::{dpi::PhysicalSize, window::Window};
 
+#[expect(unused)]
 pub mod debug;
 
 pub const WGPU_FEATURES: wgpu::Features = wgpu::Features::FLOAT32_FILTERABLE

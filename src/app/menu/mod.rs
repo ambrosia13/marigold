@@ -1,14 +1,10 @@
-use std::{
-    ops::IndexMut,
-    time::{Duration, Instant},
-};
+use std::{ops::IndexMut, time::Instant};
 
 use bevy_ecs::{
     message::MessageWriter,
     system::{Local, NonSend, Res, ResMut},
 };
-use egui::{Align2, DragValue, Ui};
-use glam::{Vec2, Vec3};
+use egui::{DragValue, Ui};
 
 use crate::{
     app::{
@@ -121,12 +117,10 @@ pub fn controls_menu(egui_render_state: NonSend<EguiRenderState>) {
 }
 
 pub fn camera_menu(egui_render_state: NonSend<EguiRenderState>, camera: Res<Camera>) {
-    egui::Window::new("Camera")
-        .default_open(false)
-        .show(egui_render_state.context(), |ui| {
-            ui.label(format!("Position: {}", camera.position));
-            ui.label(format!("Direction: {}", camera.forward()));
-        });
+    egui::Window::new("Camera").show(egui_render_state.context(), |ui| {
+        ui.label(format!("Position: {:.3}", camera.position));
+        ui.label(format!("Direction: {:.3}", camera.forward()));
+    });
 }
 
 pub fn atmosphere_menu(

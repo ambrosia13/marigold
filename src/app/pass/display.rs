@@ -15,8 +15,10 @@ use crate::{
 pub struct DisplayPass {
     pipeline: wgpu::RenderPipeline,
 
+    #[expect(unused)]
     sampler: wgpu::Sampler,
 
+    #[expect(unused)]
     bind_group_layout: wgpu::BindGroupLayout,
     bind_group_main: wgpu::BindGroup,
     bind_group_alt: wgpu::BindGroup,

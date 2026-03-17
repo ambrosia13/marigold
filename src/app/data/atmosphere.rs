@@ -5,6 +5,7 @@ use bevy_ecs::{
 };
 use glam::Vec3;
 use gpu_layout::{AsGpuBytes, Std140Layout};
+use wgpu::util::DeviceExt;
 
 use crate::app::{messages::AtmosphereRebakeMessage, render::SurfaceState};
 
@@ -116,18 +117,15 @@ impl AtmosphereBinding {
     pub fn init(mut commands: Commands, surface_state: Res<SurfaceState>) {
         let uploaded_params = AtmosphereParams::default();
 
-        let buffer = surface_state
-            .gpu
-            .device
-            .create_buffer(&wgpu::BufferDescriptor {
-                label: Some("atmosphere_buffer"),
-                size: uploaded_params
-                    .as_gpu_bytes::<Std140Layout>()
-                    .as_slice()
-                    .len() as u64,
-                usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-                mapped_at_creation: false,
-            });
+        let buffer =
+            surface_state
+                .gpu
+                .device
+                .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                    label: Some("atmosphere_buffer"),
+                    contents: uploaded_params.as_gpu_bytes::<Std140Layout>().as_slice(),
+                    usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+                });
 
         let bind_group_layout =
             surface_state
@@ -175,10 +173,10 @@ impl AtmosphereBinding {
         mut rebake_events: MessageWriter<AtmosphereRebakeMessage>,
         mut atmosphere_binding: ResMut<AtmosphereBinding>,
     ) {
-        // if atmosphere_binding.uploaded_params == *atmosphere_params {
-        //     // skip upload, because data is up to date
-        //     return;
-        // }
+        if atmosphere_binding.uploaded_params == *atmosphere_params {
+            // skip upload, because data is up to date
+            return;
+        }
 
         if atmosphere_binding
             .uploaded_params

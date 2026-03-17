@@ -1,5 +1,5 @@
 use bevy_ecs::{
-    message::MessageReader,
+    message::{MessageReader, MessageWriter},
     resource::Resource,
     system::{Commands, Res, ResMut},
 };
@@ -21,13 +21,15 @@ pub const MULTISCATTERING_LUT_WIDTH: u32 = 32;
 pub const MULTISCATTERING_LUT_HEIGHT: u32 = 32;
 
 // values in the texture are 0-1, so we can use a normalized texture format
-pub const ATMOSPHERE_LUT_TEXTURE_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba32Float;
+pub const ATMOSPHERE_LUT_TEXTURE_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba16Unorm;
 
 #[derive(Resource)]
 pub struct AtmosphereBakePass {
     pub transmittance_texture: wgpu::Texture,
+    #[expect(unused)]
     pub transmittance_texture_view: wgpu::TextureView,
     pub multiscattering_texture: wgpu::Texture,
+    #[expect(unused)]
     pub multiscattering_texture_view: wgpu::TextureView,
 
     transmittance_pass_bind_group: wgpu::BindGroup,
@@ -43,9 +45,13 @@ pub struct AtmosphereBakePass {
 impl AtmosphereBakePass {
     pub fn init(
         mut commands: Commands,
+        mut rebake_events: MessageWriter<AtmosphereRebakeMessage>,
         surface_state: Res<SurfaceState>,
         atmosphere_binding: Res<AtmosphereBinding>,
     ) {
+        // send at least one rebake message
+        rebake_events.write(AtmosphereRebakeMessage);
+
         log::info!("initializing atmosphere bake pass");
 
         let gpu = &surface_state.gpu;
@@ -307,11 +313,15 @@ impl AtmosphereBakePass {
         atmosphere_binding: Res<AtmosphereBinding>,
         atmosphere_bake_pass: Res<AtmosphereBakePass>,
     ) {
-        // if rebake_events.is_empty() {
-        //     return;
-        // } else {
-        //     rebake_events.clear();
-        // }
+        let mut has_event = false;
+
+        for _ in rebake_events.read() {
+            has_event = true;
+        }
+
+        if !has_event {
+            return;
+        }
 
         log::info!("running atmosphere bake passes");
 

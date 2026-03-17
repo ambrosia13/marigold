@@ -154,8 +154,10 @@ impl ApplicationHandler for App {
 
         #[allow(clippy::single_match)]
         match event {
-            winit::event::DeviceEvent::MouseMotion { delta } => {
-                world.write_message(MouseMotionMessage(DVec2::new(delta.0, delta.1)));
+            winit::event::DeviceEvent::MouseMotion { delta }
+                if *focus_state == FocusState::Renderer =>
+            {
+                world.write_message(MouseMotionMessage(DVec2::new(delta.0, -delta.1)));
             }
             _ => {}
         }

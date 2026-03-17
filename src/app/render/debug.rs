@@ -139,8 +139,7 @@ impl TimeQuery {
         encoder.resolve_query_set(
             &self.query_set,
             // read the previous sample only
-            ((self.current_sample_index as u32 - 1) * 2)
-                ..(self.current_sample_index as u32 - 1) * 2 + 1,
+            ((self.current_sample_index - 1) * 2)..(self.current_sample_index - 1) * 2 + 1,
             &self.resolve_buffer,
             0,
         );

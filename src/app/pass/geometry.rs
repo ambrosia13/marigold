@@ -22,6 +22,7 @@ pub struct GeometryTextures {
     pub previous: wgpu::Texture,
 
     pub current_view: wgpu::TextureView,
+    #[expect(unused)]
     pub previous_view: wgpu::TextureView,
 
     pub bind_group_layout: wgpu::BindGroupLayout,
@@ -188,7 +189,6 @@ pub fn create_pathtrace_pipeline(
 
 // draw geometry with the active geometry pipeline
 pub fn draw_geometry(
-    surface_state: Res<SurfaceState>,
     mut frame: ResMut<FrameRecord>,
     screen_binding: Res<ScreenBinding>,
     background_binding: Res<BackgroundBinding>,

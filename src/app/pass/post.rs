@@ -17,6 +17,7 @@ use crate::{
     util,
 };
 
+#[expect(unused)]
 pub struct PostTextureState {
     pub input: wgpu::Texture,
     pub input_view: wgpu::TextureView,
@@ -31,6 +32,7 @@ pub struct PostTextureState {
 }
 
 impl PostTextureState {
+    #[expect(unused)]
     pub fn state(&self) -> &'static str {
         if !self.swapped {
             "main_to_alt"
@@ -338,6 +340,7 @@ impl PostTextures {
         render_pass.draw(0..6, 0..1);
     }
 
+    #[expect(unused)]
     pub fn current_input(&self) -> (wgpu::Texture, wgpu::TextureView) {
         if !self.swapped {
             // if not swapped, main -> alt
@@ -348,6 +351,7 @@ impl PostTextures {
         }
     }
 
+    #[expect(unused)]
     pub fn current_output(&self) -> (wgpu::Texture, wgpu::TextureView) {
         if !self.swapped {
             // if not swapped, main -> alt

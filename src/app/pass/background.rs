@@ -8,7 +8,7 @@ use crate::{
     app::{
         data::{atmosphere::AtmosphereBinding, camera::ScreenBinding},
         pass::{BACKGROUND_TEXTURE_FORMAT, bake::AtmosphereBakePass},
-        render::{FrameRecord, GpuHandle, SurfaceState},
+        render::{FrameRecord, SurfaceState},
     },
     util,
 };
@@ -101,12 +101,16 @@ impl BackgroundBinding {
 
 #[derive(Resource)]
 pub struct AtmosphereCubemapPass {
+    #[expect(unused)]
     pub cubemap_texture: wgpu::Texture,
     pub cubemap_texture_view: wgpu::TextureView,
     pub cubemap_face_texture_views: [wgpu::TextureView; 6],
     pub sky_view_day_texture: wgpu::Texture,
+    #[expect(unused)]
     pub sky_view_day_texture_view: wgpu::TextureView,
+    #[expect(unused)]
     pub sky_view_night_texture: wgpu::Texture,
+    #[expect(unused)]
     pub sky_view_night_texture_view: wgpu::TextureView,
 
     sky_view_pass_bind_group: wgpu::BindGroup,
@@ -293,14 +297,14 @@ impl AtmosphereCubemapPass {
                     entries: &[
                         wgpu::BindGroupLayoutEntry {
                             binding: 0,
-                            visibility: wgpu::ShaderStages::COMPUTE,
+                            visibility: wgpu::ShaderStages::FRAGMENT,
                             ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
                             count: None,
                         },
                         // day
                         wgpu::BindGroupLayoutEntry {
                             binding: 1,
-                            visibility: wgpu::ShaderStages::COMPUTE,
+                            visibility: wgpu::ShaderStages::FRAGMENT,
                             ty: wgpu::BindingType::Texture {
                                 sample_type: wgpu::TextureSampleType::Float { filterable: true },
                                 view_dimension: wgpu::TextureViewDimension::D2,
@@ -311,7 +315,7 @@ impl AtmosphereCubemapPass {
                         // night
                         wgpu::BindGroupLayoutEntry {
                             binding: 2,
-                            visibility: wgpu::ShaderStages::COMPUTE,
+                            visibility: wgpu::ShaderStages::FRAGMENT,
                             ty: wgpu::BindingType::Texture {
                                 sample_type: wgpu::TextureSampleType::Float { filterable: true },
                                 view_dimension: wgpu::TextureViewDimension::D2,
@@ -346,6 +350,7 @@ impl AtmosphereCubemapPass {
             .create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: Some("atmosphere_cubemap_pass_pipeline_layout"),
                 bind_group_layouts: &[
+                    &screen_binding.bind_group_layout,
                     &atmosphere_binding.bind_group_layout,
                     &atmosphere_bake_pass.bind_group_layout,
                     &bind_group_layout,
@@ -465,9 +470,10 @@ impl AtmosphereCubemapPass {
 
         cubemap_pass.set_pipeline(&atmosphere_cubemap_pass.cubemap_pass_pipeline);
 
-        cubemap_pass.set_bind_group(0, &atmosphere_binding.bind_group, &[]);
-        cubemap_pass.set_bind_group(1, &atmosphere_bake_pass.bind_group, &[]);
-        cubemap_pass.set_bind_group(2, &atmosphere_cubemap_pass.cubemap_pass_bind_group, &[]);
+        cubemap_pass.set_bind_group(0, &screen_binding.bind_group, &[]);
+        cubemap_pass.set_bind_group(1, &atmosphere_binding.bind_group, &[]);
+        cubemap_pass.set_bind_group(2, &atmosphere_bake_pass.bind_group, &[]);
+        cubemap_pass.set_bind_group(3, &atmosphere_cubemap_pass.cubemap_pass_bind_group, &[]);
 
         cubemap_pass.draw(0..6, 0..1);
     }

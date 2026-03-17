@@ -1,4 +1,5 @@
 import "lib/screen";
+import "lib/random";
 import "lib/pass/post";
 
 [[numthreads(8, 8, 1)]]

@@ -61,7 +61,7 @@ void compute(
 
     float3 rayDir = float3(cosAltitude * sin(azimuthAngle), sin(altitudeAngle), -cosAltitude * cos(azimuthAngle));
 
-    float sunAltitude = HALF_PI * safeAcos(dot(atmosphereParams.sunDirection, up));
+    float sunAltitude = HALF_PI - safeAcos(dot(atmosphereParams.sunDirection, up));
     float3 sunDir = float3(0.0, sin(sunAltitude), -cos(sunAltitude));
 
     float moonAltitude = HALF_PI * safeAcos(dot(atmosphereParams.moonDirection, up));
