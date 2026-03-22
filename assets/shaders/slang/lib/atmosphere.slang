@@ -3,7 +3,6 @@ module atmosphere;
 import "math";
 
 // Code taken and adapted from https://www.shadertoy.com/view/slSXRW
-
 public struct AtmosphereParams {
     public float3 sunColor;
     public float groundRadius;
@@ -35,6 +34,8 @@ public struct AtmosphereParams {
     public uint multiscatteringLutSteps;
     public uint multiscatteringLutSqrtSamples;
     public uint skyViewLutSteps;
+
+    public float brightnessMultiplier;
 
     public float3 worldPosToLocalPos(float3 pos) {
         return (pos - origin) / metersPerUnit;
@@ -214,8 +215,10 @@ public struct AtmosphereParams {
         float3 rayDir,
         float3 celestialDir,
         float3 celestialColor,
+        float tMin,
         float tMax,
-        AtmosphereLuts luts
+        AtmosphereLuts luts,
+        out float3 transmittance,
     ) {
         float cosTheta = dot(rayDir, sunDirection);
 
@@ -223,9 +226,9 @@ public struct AtmosphereParams {
         float rayleighPhaseValue = getRayleighPhase(cosTheta);
 
         float3 lum = float3(0.0);
-        float3 transmittance = float3(1.0);
+        transmittance = float3(1.0);
 
-        float t = 0.0;
+        float t = tMin;
         for (float i = 0.0; i < float(skyViewLutSteps); i += 1.0) {
             float newT = ((i + 0.3) / float(skyViewLutSteps)) * tMax;
             float dt = newT - t;
@@ -240,13 +243,20 @@ public struct AtmosphereParams {
             float3 sampleTransmittance = exp(-dt * extinction);
 
             float3 celestialTransmittance = getValFromTLUT(luts.sampler, luts.transmittance, newPos, celestialDir) * celestialColor;
-            float3 psiMS = getValFromMultiScattLUT(luts.sampler, luts.multiscattering, newPos, celestialDir) * celestialColor;
+            float3 psiMS = getValFromMultiScattLUT(luts.sampler, luts.multiscattering, newPos, celestialDir);
 
             float3 rayleighInScattering = rayleighScattering * (rayleighPhaseValue * celestialTransmittance + psiMS);
             float3 mieInScattering = mieScattering * (miePhaseValue * celestialTransmittance + psiMS);
             float3 inScattering = rayleighInScattering + mieInScattering;
-
-            float3 scatteringIntegral = (inScattering - inScattering * sampleTransmittance) / extinction;
+            
+            // limit as extinction approaches 0
+            float3 scatteringIntegralLimit = inScattering * dt;
+            bool3 useLimit = extinction < 1e-6;
+            float3 scatteringIntegral = select(
+                useLimit, 
+                inScattering * dt,
+                (inScattering - inScattering * sampleTransmittance) / extinction, 
+            );
 
             lum += scatteringIntegral * transmittance;
             transmittance *= sampleTransmittance;
@@ -310,13 +320,25 @@ public float getRayleighPhase(float cosTheta) {
     return 0.05968310365 * (1.0 + cosTheta * cosTheta);
 }
 
-public float rayIntersectSphere(float3 ro, float3 rd, float rad) {
+public float rayIntersectSphere(float3 ro, float3 rd, float rad, out float tFar) {
+    tFar = -1.0;
+
     float b = dot(ro, rd);
     float c = dot(ro, ro) - rad * rad;
     if (c > 0.0 && b > 0.0) return -1.0;
     float discr = b * b - c;
     if (discr < 0.0) return -1.0;
-    // Special case: inside sphere, use far discriminant
-    if (discr > b * b) return (-b + sqrt(discr));
-    return -b - sqrt(discr);    
+
+    float s = sqrt(discr);
+
+    tFar = -b + s;
+    return -b - s;    
+}
+
+// overload for when u want closest distance only
+public float rayIntersectSphere(float3 ro, float3 rd, float rad) {
+    float tFar;
+    float tNear = rayIntersectSphere(ro, rd, rad, tFar);
+
+    return tNear >= 0.0 ? min(tNear, tFar) : tFar;
 }

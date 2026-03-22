@@ -19,7 +19,7 @@ impl Time {
         }
     }
 
-    fn tick(&mut self) {
+    pub fn tick(&mut self) {
         let new_instant = Instant::now();
         let delta = self.last_frame.elapsed();
 
@@ -39,9 +39,5 @@ impl Time {
     pub fn init(mut commands: Commands) {
         commands.insert_resource(Time::new());
         log::info!("initialized time system");
-    }
-
-    pub fn update(mut time: ResMut<Time>) {
-        time.tick();
     }
 }

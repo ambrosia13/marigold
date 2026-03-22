@@ -2,11 +2,14 @@ use std::path::{Path, PathBuf};
 
 use glam::UVec3;
 
+pub mod buffer;
+
+pub fn get_asset_root() -> PathBuf {
+    std::env::current_dir().unwrap()
+}
+
 pub fn get_asset_path<P: AsRef<Path>>(asset_location: P) -> PathBuf {
-    std::env::current_dir()
-        .unwrap()
-        .join("assets")
-        .join(&asset_location)
+    get_asset_root().join("assets").join(&asset_location)
 }
 
 pub fn get_shader_path<P: AsRef<Path>>(shader_location: P) -> PathBuf {
@@ -39,4 +42,17 @@ pub fn get_spirv_source<P: AsRef<Path>>(shader_location: P) -> Vec<u32> {
 
 pub fn get_workgroup_count_from_size(workgroup_size: UVec3, dimensions: UVec3) -> UVec3 {
     (dimensions + workgroup_size - UVec3::ONE) / workgroup_size
+}
+
+// returns new number + unit
+pub fn display_byte_size(bytes: usize) -> (f64, &'static str) {
+    if bytes < 1024 {
+        (bytes as f64, "B")
+    } else if bytes < 1024 * 1024 {
+        (bytes as f64 / 1024.0, "KiB")
+    } else if bytes < 1024 * 1024 * 1024 {
+        (bytes as f64 / (1024.0 * 1024.0), "MiB")
+    } else {
+        (bytes as f64 / (1024.0 * 1024.0 * 1024.0), "GiB")
+    }
 }

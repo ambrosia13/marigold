@@ -5,6 +5,8 @@ use bevy_ecs::{
 };
 use derived_deref::{Deref, DerefMut};
 
+use crate::app::data::scene::geometry::mesh::UnserializedMesh;
+
 pub fn init_message_type<T: Message>(world: &mut World) {
     world.insert_resource(Messages::<T>::default());
 }

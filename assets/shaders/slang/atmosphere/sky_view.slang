@@ -72,13 +72,16 @@ void compute(
 
     float tMax = groundDist < 0.0 ? atmoDist : groundDist;
 
+    float3 transmittance;
     float3 dayColor = atmosphereParams.raymarchScattering(
         skyViewPos,
         rayDir,
         sunDir,
         atmosphereParams.sunColor,
+        0.0,
         tMax,
-        atmosphereLuts
+        atmosphereLuts,
+        transmittance
     );
 
     float3 nightColor = atmosphereParams.raymarchScattering(
@@ -86,8 +89,10 @@ void compute(
         rayDir,
         moonDir,
         atmosphereParams.moonColor * atmosphereParams.moonToSunIlluminanceRatio,
+        0.0,
         tMax,
-        atmosphereLuts
+        atmosphereLuts,
+        transmittance
     );
 
     resources.dayTexture.Store(globalInvocationId.xy, float4(dayColor, 1.0));

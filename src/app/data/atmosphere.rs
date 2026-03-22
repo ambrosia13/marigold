@@ -43,36 +43,47 @@ pub struct AtmosphereParams {
     pub multiscattering_lut_steps: u32,        // default: 40
     pub multiscattering_lut_sqrt_samples: u32, // default: 16
     pub sky_view_lut_steps: u32,               // default: 32 (realtime)
+
+    pub brightness_multiplier: f32, // default: 7.5?
 }
 
 impl Default for AtmosphereParams {
     fn default() -> Self {
         let ground_radius = 6.360;
-        let meters_per_unit = 1.0e6;
+        let atmosphere_radius = 6.460;
+        let meters_per_unit = 1.0e4;
+
+        // 500 meters above the ground in a properly scaled atmosphere
+        let initial_altitude = 500e-6;
 
         Self {
             sun_color: Vec3::new(1.0, 0.85, 0.8),
             ground_radius,
             moon_color: Vec3::new(1.0, 1.0, 0.9),
-            atmosphere_radius: 6.460,
+            atmosphere_radius,
             rayleigh_scattering_base: Vec3::new(5.802, 13.558, 33.1),
             rayleigh_absorption_base: 0.0,
             ozone_absorption_base: Vec3::new(0.650, 1.881, 0.085),
             mie_scattering_base: 25.996,
-            ground_albedo: Vec3::splat(0.3),
+            ground_albedo: Vec3::splat(0.3), // for some reason, setting this to 0.3 causes the multiscat lut to be red
             mie_absorption_base: 4.4,
-            origin: Vec3::new(0.0, -ground_radius * meters_per_unit - 500.0, 0.0), // camera starts at 500m above the ground
+            origin: Vec3::new(
+                0.0,
+                -(ground_radius + initial_altitude) * meters_per_unit,
+                0.0,
+            ), // camera starts slightly above the ground
             atmosphere_g: 0.76385,
             moon_to_sun_illuminance_ratio: 2.5e-6,
-            meters_per_unit, // megameters
+            meters_per_unit, // how big a meter in world space is in atmosphere space
             rayleigh_scale_height: 8.0 / 1000.0,
             mie_scale_height: 1.2 / 1000.0,
-            transmittance_lut_steps: 80,
-            multiscattering_lut_steps: 40,
-            multiscattering_lut_sqrt_samples: 16,
+            transmittance_lut_steps: 40,
+            multiscattering_lut_steps: 20,
+            multiscattering_lut_sqrt_samples: 8,
             sky_view_lut_steps: 32,
             sun_direction: Vec3::new(0.2, 0.9, 0.3).normalize(),
             moon_direction: Vec3::new(-0.5, -0.8, 0.1).normalize(),
+            brightness_multiplier: 4.0,
         }
     }
 }

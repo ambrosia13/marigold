@@ -16,11 +16,13 @@ winit = "0.30.13"
 # game engine stuff
 bevy_ecs = { version = "0.18.1", features = ["debug"] }
 glam = "0.30.9"
+gltf = "1.4.1"
 
 # user interface
 egui = { git = "https://github.com/ambrosia13/egui" }
 egui-wgpu = { git = "https://github.com/ambrosia13/egui" }
 egui-winit = { git = "https://github.com/ambrosia13/egui" }
+egui_plot = { git = "https://github.com/ambrosia13/egui_plot" }
 
 # logging
 env_logger = "0.11.8"
@@ -30,6 +32,7 @@ log = "0.4.29"
 pollster = "0.4.0"
 anyhow = "1.0.100"
 derived-deref = "2.1.0"
+rayon = "1.11.0"
 
 # data manipulation
 gpu_layout = "0.2.1"

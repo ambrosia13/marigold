@@ -31,23 +31,79 @@ float3[6] getCubemapViewDirs(float2 uv) {
 float4 render(float3 viewDir, Screen screen, AtmosphereParams atmosphereParams, AtmosphereLuts atmosphereLuts, SkyViewLuts skyViewLuts) {
     float3 color = float3(0.0);
     
-    color += atmosphereParams.getValFromSkyLUT(
-        atmosphereParams.worldPosToLocalPos(screen.camera.position),
-        viewDir * float3(1.0, -1.0, 1.0),
-        atmosphereParams.sunDirection,
-        skyViewLuts.sampler,
-        skyViewLuts.day
-    );
+    float3 skyViewPos = atmosphereParams.worldPosToLocalPos(screen.camera.position);
+    float height = length(skyViewPos);
+    bool isInsideAtmosphere = height < atmosphereParams.atmosphereRadius;
+    bool isInsideGround = height < atmosphereParams.groundRadius;
 
-    color += atmosphereParams.getValFromSkyLUT(
-        atmosphereParams.worldPosToLocalPos(screen.camera.position),
-        viewDir * float3(1.0, -1.0, 1.0),
-        atmosphereParams.moonDirection,
-        skyViewLuts.sampler,
-        skyViewLuts.night
-    );
+    if (isInsideGround) {
+        return float4(color, 1.0);
+    } else if (isInsideAtmosphere) {
+        color += atmosphereParams.getValFromSkyLUT(
+            atmosphereParams.worldPosToLocalPos(screen.camera.position),
+            viewDir * float3(1.0, -1.0, 1.0),
+            atmosphereParams.sunDirection,
+            skyViewLuts.sampler,
+            skyViewLuts.day
+        );
 
-    color *= 5.0;
+        color += atmosphereParams.getValFromSkyLUT(
+            atmosphereParams.worldPosToLocalPos(screen.camera.position),
+            viewDir * float3(1.0, -1.0, 1.0),
+            atmosphereParams.moonDirection,
+            skyViewLuts.sampler,
+            skyViewLuts.night
+        );
+    } else {
+        viewDir.y *= -1.0;
+
+        float atmoDistFar; 
+        float atmoDistNear = rayIntersectSphere(skyViewPos, viewDir, atmosphereParams.atmosphereRadius, atmoDistFar);
+        float groundDist = rayIntersectSphere(skyViewPos, viewDir, atmosphereParams.groundRadius);
+
+        float tMin, tMax;
+
+        if (atmoDistFar < 0.0) {
+            // not looking at atmosphere at all, skip trace
+            return float4(color, 1.0);
+        } else if (atmoDistNear < 0.0) {
+            // inside atmosphere
+            tMin = 0.0; // start from camera
+            tMax = groundDist < 0.0 ? atmoDistFar : groundDist; // trace until either the ground, or the edge of atmosphere
+        } else {
+            // outside atmosphere
+            tMin = atmoDistNear; // start from near edge of atmosphere
+            tMax = groundDist < 0.0 ? atmoDistFar : groundDist; // trace until either the ground, or the far edge of atmosphere
+        }
+
+        float3 transmittance;
+
+        color += atmosphereParams.raymarchScattering(
+            skyViewPos,
+            viewDir,
+            atmosphereParams.sunDirection,
+            atmosphereParams.sunColor,
+            tMin,
+            tMax,
+            atmosphereLuts,
+            transmittance
+        );
+        
+        color += atmosphereParams.raymarchScattering(
+            skyViewPos,
+            viewDir,
+            atmosphereParams.moonDirection,
+            atmosphereParams.moonColor * atmosphereParams.moonToSunIlluminanceRatio,
+            tMin,
+            tMax,
+            atmosphereLuts,
+            transmittance
+        );
+
+        // color += atmosphereParams.groundAlbedo * transmittance * float(groundDist >= 0.0) / atmosphereParams.brightnessMultiplier;
+    }
+    
+    color *= atmosphereParams.brightnessMultiplier;
 
     return float4(color, 1.0);
 }

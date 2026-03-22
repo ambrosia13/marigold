@@ -5,10 +5,16 @@ use bevy_ecs::{
     system::{Local, NonSend, Res, ResMut},
 };
 use egui::{DragValue, Ui};
+use egui_plot::{HLine, Legend, Line, Plot, PlotPoints, Span};
 
 use crate::{
     app::{
-        data::{atmosphere::AtmosphereParams, camera::Camera, time::Time},
+        data::{
+            atmosphere::AtmosphereParams,
+            camera::Camera,
+            fps::{self, FpsCounter},
+            time::Time,
+        },
         messages::ExitMessage,
         render::SurfaceState,
     },
@@ -57,34 +63,9 @@ pub fn diagnostics_menu(
     egui_render_state: NonSend<EguiRenderState>,
     surface_state: Res<SurfaceState>,
     time: Res<Time>,
+    fps: Res<FpsCounter>,
     mut exit_messages: MessageWriter<ExitMessage>,
-    mut last_measured_instance: Local<Option<std::time::Instant>>,
-    mut last_measured_frame: Local<u128>,
-    mut average_fps: Local<f64>,
 ) {
-    let frame_interval = 32;
-
-    if last_measured_instance.is_none() {
-        *last_measured_instance = Some(Instant::now());
-        *last_measured_frame = time.frame_count();
-    }
-
-    let elapsed = last_measured_instance.unwrap().elapsed();
-    let frames = time.frame_count() - *last_measured_frame;
-
-    if frames >= frame_interval {
-        *average_fps = frames as f64 / elapsed.as_secs_f64();
-
-        *last_measured_instance = Some(Instant::now());
-        *last_measured_frame = time.frame_count();
-    }
-
-    let frames_since_last_measure = time.frame_count() % frame_interval;
-
-    if frames_since_last_measure == 0 {
-        *last_measured_instance = Some(Instant::now());
-    }
-
     egui::Window::new("Info").show(egui_render_state.context(), |ui| {
         let info = surface_state.gpu.adapter.get_info();
 
@@ -98,8 +79,9 @@ pub fn diagnostics_menu(
 
         ui.separator();
 
-        ui.label(format!("Average FPS: {:.1}", *average_fps));
-        ui.label(format!("Average frametime: {:.3}", 1000.0 / *average_fps));
+        let average_fps = fps.average_fps();
+        ui.label(format!("Average FPS: {:.1}", average_fps));
+        ui.label(format!("Average frametime: {:.3}", 1000.0 / average_fps));
 
         ui.separator();
 
@@ -109,6 +91,49 @@ pub fn diagnostics_menu(
     });
 }
 
+pub fn fps_graph_menu(
+    egui_render_state: NonSend<EguiRenderState>,
+    surface_state: Res<SurfaceState>,
+    fps: Res<FpsCounter>,
+) {
+    egui::Window::new("FPS Graph")
+        .default_open(false)
+        .show(egui_render_state.context(), |ui| {
+            let refresh_rate_hz = surface_state
+                .window
+                .current_monitor()
+                .and_then(|m| m.refresh_rate_millihertz().map(|r| r as f64 * 0.001));
+
+            let points: PlotPoints<'_> = fps
+                .samples()
+                .iter()
+                .enumerate()
+                .map(|(i, d)| [i as f64, 1.0 / d.as_secs_f64()])
+                .collect();
+
+            Plot::new("FPS Graph")
+                .legend(Legend::default())
+                .default_x_bounds(0.0, fps::FPS_NUM_SAMPLES as f64)
+                .default_y_bounds(0.0, 150.0)
+                .show(ui, |plot_ui| {
+                    plot_ui
+                        .set_plot_bounds_y(0.0..=refresh_rate_hz.map(|r| r * 1.5).unwrap_or(150.0));
+
+                    if let Some(refresh_rate_hz) = refresh_rate_hz {
+                        plot_ui.hline(
+                            HLine::new("refresh rate", refresh_rate_hz).color(egui::Color32::GREEN),
+                        );
+                    }
+
+                    plot_ui.line(
+                        Line::new("fps", points)
+                            .color(egui::Color32::RED)
+                            .style(egui_plot::LineStyle::Solid),
+                    );
+                });
+        });
+}
+
 pub fn controls_menu(egui_render_state: NonSend<EguiRenderState>) {
     egui::Window::new("Controls").show(egui_render_state.context(), |ui| {
         ui.label("Toggle focus between Menu/Renderer: Escape");
@@ -116,11 +141,14 @@ pub fn controls_menu(egui_render_state: NonSend<EguiRenderState>) {
     });
 }
 
-pub fn camera_menu(egui_render_state: NonSend<EguiRenderState>, camera: Res<Camera>) {
-    egui::Window::new("Camera").show(egui_render_state.context(), |ui| {
-        ui.label(format!("Position: {:.3}", camera.position));
-        ui.label(format!("Direction: {:.3}", camera.forward()));
-    });
+pub fn camera_menu(egui_render_state: NonSend<EguiRenderState>, mut camera: ResMut<Camera>) {
+    egui::Window::new("Camera")
+        .default_open(false)
+        .show(egui_render_state.context(), |ui| {
+            ui.label("Position:");
+            vector_editor(&mut camera.position, ui);
+            ui.label(format!("Direction: {:.3}", camera.forward()));
+        });
 }
 
 pub fn atmosphere_menu(
@@ -155,6 +183,11 @@ pub fn atmosphere_menu(
             ui.horizontal(|ui| {
                 ui.label("Moon To Sun Brightness Ratio:");
                 float_editor(&mut local_params.moon_to_sun_illuminance_ratio, ui);
+            });
+
+            ui.horizontal(|ui| {
+                ui.label("Overall Atmosphere Brightness Multiplier");
+                float_editor(&mut local_params.brightness_multiplier, ui);
             });
 
             ui.separator();

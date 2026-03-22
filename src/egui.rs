@@ -1,11 +1,11 @@
 use egui_wgpu::{
-    Renderer, RendererOptions, ScreenDescriptor,
     wgpu::{
         CommandEncoder, Device, Queue, RenderPassColorAttachment, RenderPassDescriptor, StoreOp,
         TextureFormat, TextureView,
     },
+    Renderer, RendererOptions, ScreenDescriptor,
 };
-use egui_winit::{State, egui::Context};
+use egui_winit::{egui::Context, State};
 use winit::{event::WindowEvent, window::Window};
 
 // Taken from egui example at https://github.com/kaphula/winit-egui-wgpu-template

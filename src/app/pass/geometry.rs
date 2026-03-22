@@ -9,7 +9,7 @@ use glam::UVec3;
 
 use crate::{
     app::{
-        data::camera::ScreenBinding,
+        data::{camera::ScreenBinding, scene::SceneBinding},
         pass::background::BackgroundBinding,
         render::{FrameRecord, SurfaceState},
     },
@@ -132,6 +132,7 @@ impl GeometryCommon {
         surface_state: Res<SurfaceState>,
         screen_binding: Res<ScreenBinding>,
         background_binding: Res<BackgroundBinding>,
+        scene_binding: Res<SceneBinding>,
         geometry_textures: Res<GeometryTextures>,
     ) {
         let gpu = &surface_state.gpu;
@@ -143,6 +144,7 @@ impl GeometryCommon {
                 bind_group_layouts: &[
                     &screen_binding.bind_group_layout,
                     &background_binding.bind_group_layout,
+                    &scene_binding.bind_group_layout,
                     &geometry_textures.bind_group_layout,
                 ],
                 immediate_size: 0,
@@ -192,6 +194,7 @@ pub fn draw_geometry(
     mut frame: ResMut<FrameRecord>,
     screen_binding: Res<ScreenBinding>,
     background_binding: Res<BackgroundBinding>,
+    scene_binding: Res<SceneBinding>,
     geometry_textures: Res<GeometryTextures>,
 
     active_pipeline: Single<&GeometryPipeline, With<ActiveGeometryPipeline>>,
@@ -212,7 +215,8 @@ pub fn draw_geometry(
 
     compute_pass.set_bind_group(0, &screen_binding.bind_group, &[]);
     compute_pass.set_bind_group(1, &background_binding.bind_group, &[]);
-    compute_pass.set_bind_group(2, &geometry_textures.bind_group, &[]);
+    compute_pass.set_bind_group(2, &scene_binding.bind_group, &[]);
+    compute_pass.set_bind_group(3, &geometry_textures.bind_group, &[]);
 
     compute_pass.set_pipeline(&active_pipeline);
 

@@ -16,10 +16,10 @@ Event-driven:
     OnResize
 */
 
-use bevy_ecs::schedule::{IntoScheduleConfigs, Schedule, ScheduleLabel};
+use bevy_ecs::schedule::{ExecutorKind, IntoScheduleConfigs, Schedule, ScheduleLabel};
 
 use crate::app::{
-    data::{atmosphere, camera, input, time},
+    data::{atmosphere, camera, fps, input, scene, time},
     menu,
     messages::{
         AtmosphereRebakeMessage, ExitMessage, KeyInputMessage, MouseInputMessage,
@@ -79,20 +79,37 @@ pub struct Schedules {
 impl Default for Schedules {
     fn default() -> Self {
         // startup schedules
-        let on_init_message_setup = Schedule::new(OnInitMessageSetupSchedule);
-        let on_init_render_setup = Schedule::new(OnInitRenderSetupSchedule);
-        let on_init_app_setup = Schedule::new(OnInitAppSetupSchedule);
-        let on_init_menu_setup = Schedule::new(OnInitMenuSetupSchedule);
+        let mut on_init_message_setup = Schedule::new(OnInitMessageSetupSchedule);
+        let mut on_init_render_setup = Schedule::new(OnInitRenderSetupSchedule);
+        let mut on_init_app_setup = Schedule::new(OnInitAppSetupSchedule);
+        let mut on_init_menu_setup = Schedule::new(OnInitMenuSetupSchedule);
 
         // per-frame schedules
-        let on_redraw_pre_frame = Schedule::new(OnRedrawPreFrameSchedule);
-        let on_redraw_render = Schedule::new(OnRedrawRenderSchedule);
-        let on_redraw_post_frame = Schedule::new(OnRedrawPostFrameSchedule);
-        let on_redraw_message_update = Schedule::new(OnRedrawMessageUpdateSchedule);
-        let on_redraw_menu_update = Schedule::new(OnRedrawMenuUpdateSchedule);
+        let mut on_redraw_pre_frame = Schedule::new(OnRedrawPreFrameSchedule);
+        let mut on_redraw_render = Schedule::new(OnRedrawRenderSchedule);
+        let mut on_redraw_post_frame = Schedule::new(OnRedrawPostFrameSchedule);
+        let mut on_redraw_message_update = Schedule::new(OnRedrawMessageUpdateSchedule);
+        let mut on_redraw_menu_update = Schedule::new(OnRedrawMenuUpdateSchedule);
 
         // event-driven schedules
-        let on_resize = Schedule::new(OnResizeSchedule);
+        let mut on_resize = Schedule::new(OnResizeSchedule);
+
+        if std::env::var("SINGLE_THREADED").is_ok_and(|v| v == "1") {
+            log::info!("using single threaded system execution due to environment variable");
+
+            on_init_message_setup.set_executor_kind(ExecutorKind::SingleThreaded);
+            on_init_render_setup.set_executor_kind(ExecutorKind::SingleThreaded);
+            on_init_app_setup.set_executor_kind(ExecutorKind::SingleThreaded);
+            on_init_menu_setup.set_executor_kind(ExecutorKind::SingleThreaded);
+
+            on_redraw_pre_frame.set_executor_kind(ExecutorKind::SingleThreaded);
+            on_redraw_render.set_executor_kind(ExecutorKind::SingleThreaded);
+            on_redraw_post_frame.set_executor_kind(ExecutorKind::SingleThreaded);
+            on_redraw_message_update.set_executor_kind(ExecutorKind::SingleThreaded);
+            on_redraw_menu_update.set_executor_kind(ExecutorKind::SingleThreaded);
+
+            on_resize.set_executor_kind(ExecutorKind::SingleThreaded);
+        }
 
         let mut schedules = Self {
             on_init_message_setup,
@@ -110,11 +127,18 @@ impl Default for Schedules {
         schedules.on_init_app_setup.add_systems(
             (
                 time::Time::init,
+                fps::FpsCounter::init,
                 (
                     input::Input::init,
                     camera::Camera::init,
                     // debug_menu::DebugMenus::init,
                     atmosphere::AtmosphereParams::init,
+                    (
+                        scene::geometry::init_geometry_buffers,
+                        scene::geometry::mesh::LoadedMeshes::init,
+                        scene::geometry::mesh::load_all_mesh_assets,
+                    )
+                        .chain(),
                 ),
             )
                 .chain(),
@@ -125,6 +149,7 @@ impl Default for Schedules {
                 (
                     camera::ScreenBinding::init,
                     atmosphere::AtmosphereBinding::init,
+                    scene::SceneBinding::init,
                     // debug_menu::DebugMenuBinding::init,
                 ),
                 (
@@ -147,6 +172,7 @@ impl Default for Schedules {
             input::handle_keyboard_input_event,
             input::handle_mouse_input_event,
             camera::Camera::update,
+            scene::geometry::update_geometry_buffers,
         ));
 
         schedules.on_redraw_render.add_systems(
@@ -155,6 +181,7 @@ impl Default for Schedules {
                     camera::ScreenBinding::update,
                     // debug_menu::DebugMenuBinding::update,
                     atmosphere::AtmosphereBinding::update,
+                    scene::SceneBinding::update,
                 ),
                 bake::AtmosphereBakePass::update,
                 background::AtmosphereCubemapPass::update,
@@ -169,7 +196,6 @@ impl Default for Schedules {
         schedules.on_redraw_post_frame.add_systems(
             (
                 input::Input::update,
-                time::Time::update,
                 // debug_menu::DebugMenus::update,
             )
                 .chain(),
@@ -178,6 +204,7 @@ impl Default for Schedules {
         schedules.on_redraw_menu_update.add_systems(
             (
                 menu::diagnostics_menu,
+                menu::fps_graph_menu,
                 menu::controls_menu,
                 menu::camera_menu,
                 menu::atmosphere_menu,

@@ -13,6 +13,7 @@ use winit::{
 
 use crate::{
     app::{
+        data::{fps::FpsCounter, time::Time},
         messages::{ExitMessage, KeyInputMessage, MouseInputMessage, MouseMotionMessage},
         render::{FrameRecord, SurfaceState},
         schedules::Schedules,
@@ -273,6 +274,13 @@ impl ApplicationHandler for App {
                     );
                     event_loop.exit();
                 }
+
+                // update time & fps counters before doing any work for the frame
+                let mut time = world.resource_mut::<Time>();
+                time.tick(); // calculates & updates delta
+                let delta = time.delta(); // fetches updated delta
+                let mut fps = world.resource_mut::<FpsCounter>();
+                fps.tick(delta);
 
                 // We want another frame after this one
                 window.request_redraw();

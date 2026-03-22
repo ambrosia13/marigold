@@ -4,6 +4,7 @@ import "lib/pass/geometry";
 import "lib/screen";
 import "lib/random";
 import "lib/math";
+import "lib/scene";
 
 struct Background {
     SamplerState sampler;
@@ -15,6 +16,7 @@ struct Background {
 void compute(
     uniform ParameterBlock<Screen> screen,
     uniform ParameterBlock<Background> background,
+    uniform ParameterBlock<Scene> scene,
     uniform ParameterBlock<GeometryTextures> textures,
     
     uint3 globalInvocationId: SV_DispatchThreadID,
@@ -28,7 +30,7 @@ void compute(
     float2 texcoord = float2(globalInvocationId.xy) / float2(screen.view.width, screen.view.height);
     float3 viewDir = screen.camera.viewDir(texcoord);
 
-    float3 color = background.texture.SampleLevel(background.sampler, viewDir, 0).rgb;
+    float3 color = background.texture.SampleLevel(background.sampler, viewDir, 0).rgb ;
 
     textures.current.Store(globalInvocationId.xy, float4(color, 1.0));
 }
