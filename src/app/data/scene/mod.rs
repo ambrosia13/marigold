@@ -3,14 +3,17 @@ use bevy_ecs::{
     resource::Resource,
     system::{Commands, Res, ResMut},
 };
-use glam::{Mat4, Quat, Vec3};
-use gpu_layout::{AsGpuBytes, Std140Layout};
+use glam::{Mat4, Quat, Vec3, Vec4};
+use gpu_layout::{AsGpuBytes, GpuBytes, Std140Layout};
 use wgpu::util::DeviceExt;
 
 use crate::app::{
-    data::scene::geometry::{
-        BlasNodes, BlasNodesBuffer, GeometryId, MeshTriangles, MeshTrianglesBuffer, MeshVertices,
-        MeshVerticesBuffer, Meshes, MeshesBuffer,
+    data::scene::{
+        bvh::{AsBoundingVolume, BoundingVolume},
+        geometry::{
+            BlasNodes, BlasNodesBuffer, GeometryId, MeshTriangles, MeshTrianglesBuffer,
+            MeshVertices, MeshVerticesBuffer, Meshes, MeshesBuffer, TlasNodes, TlasNodesBuffer,
+        },
     },
     render::SurfaceState,
 };
@@ -20,8 +23,6 @@ pub mod geometry;
 
 #[derive(AsGpuBytes)]
 struct Counts {
-    pub object_count: u32,
-
     pub triangle_vertex_count: u32,
     pub triangle_count: u32,
     pub mesh_count: u32,
@@ -50,18 +51,19 @@ impl SceneBinding {
         meshes_buffer: Res<MeshesBuffer>,
         blas_nodes: Res<BlasNodes>,
         blas_nodes_buffer: Res<BlasNodesBuffer>,
+        tlas_nodes: Res<TlasNodes>,
+        tlas_nodes_buffer: Res<TlasNodesBuffer>,
     ) {
         log::info!("creating scene binding");
 
         let gpu = &surface_state.gpu;
 
         let counts = Counts {
-            object_count: 0,
             triangle_vertex_count: mesh_vertices.len() as u32,
             triangle_count: mesh_triangles.len() as u32,
             mesh_count: meshes.len() as u32,
             blas_node_count: blas_nodes.len() as u32,
-            tlas_node_count: 0,
+            tlas_node_count: tlas_nodes.len() as u32,
         };
 
         let counts_buffer = gpu
@@ -132,6 +134,17 @@ impl SceneBinding {
                             },
                             count: None,
                         },
+                        // tlas nodes
+                        wgpu::BindGroupLayoutEntry {
+                            binding: 5,
+                            visibility: wgpu::ShaderStages::COMPUTE,
+                            ty: wgpu::BindingType::Buffer {
+                                ty: wgpu::BufferBindingType::Storage { read_only: true },
+                                has_dynamic_offset: false,
+                                min_binding_size: None,
+                            },
+                            count: None,
+                        },
                     ],
                 });
 
@@ -159,6 +172,10 @@ impl SceneBinding {
                     binding: 4,
                     resource: blas_nodes_buffer.as_buffer_binding(),
                 },
+                wgpu::BindGroupEntry {
+                    binding: 5,
+                    resource: tlas_nodes_buffer.as_buffer_binding(),
+                },
             ],
         });
 
@@ -180,6 +197,8 @@ impl SceneBinding {
         meshes_buffer: Res<MeshesBuffer>,
         blas_nodes: Res<BlasNodes>,
         blas_nodes_buffer: Res<BlasNodesBuffer>,
+        tlas_nodes: Res<TlasNodes>,
+        tlas_nodes_buffer: Res<TlasNodesBuffer>,
     ) {
         let gpu = &surface_state.gpu;
 
@@ -187,15 +206,15 @@ impl SceneBinding {
             || mesh_triangles.is_changed()
             || meshes.is_changed()
             || blas_nodes.is_changed()
+            || tlas_nodes.is_changed()
         {
             // update counts
             let counts = Counts {
-                object_count: 0,
                 triangle_vertex_count: mesh_vertices.len() as u32,
                 triangle_count: mesh_triangles.len() as u32,
                 mesh_count: meshes.len() as u32,
                 blas_node_count: blas_nodes.len() as u32,
-                tlas_node_count: 0,
+                tlas_node_count: tlas_nodes.len() as u32,
             };
 
             log::info!("scene counts changed, updating counts buffer");
@@ -211,6 +230,7 @@ impl SceneBinding {
             || mesh_triangles_buffer.is_changed()
             || meshes_buffer.is_changed()
             || blas_nodes_buffer.is_changed()
+            || tlas_nodes_buffer.is_changed()
         {
             log::info!("scene buffer(s) reallocated, recreating scene binding");
 
@@ -239,41 +259,38 @@ impl SceneBinding {
                         binding: 4,
                         resource: blas_nodes_buffer.as_buffer_binding(),
                     },
+                    wgpu::BindGroupEntry {
+                        binding: 5,
+                        resource: tlas_nodes_buffer.as_buffer_binding(),
+                    },
                 ],
             });
         }
     }
 }
 
+#[derive(Default, Clone)]
 pub struct Object {
-    transform: Transform,
-    geometry_type: GeometryId,
+    transform_position: Vec3,
+    geometry_id: GeometryId,
+    // transform_rotation: Vec4,
+    // transform_scale: Vec3,
+    bounds: BoundingVolume,
 }
 
-#[derive(Clone, Copy)]
-pub struct Transform {
-    pub translation: Vec3,
-    pub rotation: Quat,
-    pub scale: Vec3,
-}
+impl AsGpuBytes for Object {
+    fn as_gpu_bytes<L: gpu_layout::GpuLayout + ?Sized>(&self) -> gpu_layout::GpuBytes<L> {
+        let mut buf = GpuBytes::empty();
 
-impl Transform {
-    pub const IDENTITY: Self = Self {
-        translation: Vec3::ZERO,
-        rotation: Quat::IDENTITY,
-        scale: Vec3::ONE,
-    };
+        buf.write(&self.transform_position);
+        buf.write(&self.geometry_id);
 
-    pub fn from_matrix(matrix: Mat4) -> Self {
-        let (scale, rotation, translation) = matrix.to_scale_rotation_translation();
-        Self {
-            translation,
-            rotation,
-            scale,
-        }
+        buf
     }
+}
 
-    pub fn to_matrix(&self) -> Mat4 {
-        Mat4::from_scale_rotation_translation(self.scale, self.rotation, self.translation)
+impl AsBoundingVolume for Object {
+    fn bounding_volume(&self) -> BoundingVolume {
+        self.bounds
     }
 }

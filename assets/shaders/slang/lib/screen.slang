@@ -35,7 +35,11 @@ public struct Camera {
     public float3 up;
 
     static float3 fromScreenSpace(float3 screenSpacePos, float4x4 matrix) {
-        float3 clipSpacePos = screenSpacePos * 2.0 - 1.0;
+        float3 clipSpacePos = float3(
+            screenSpacePos.x * 2.0 - 1.0,
+            1.0 - screenSpacePos.y * 2.0,
+            screenSpacePos.z * 2.0 - 1.0
+        );
         float4 temp = mul(matrix, float4(clipSpacePos, 1.0));
         return temp.xyz / temp.w;
     }

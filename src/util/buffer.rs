@@ -75,6 +75,11 @@ where
         let capacity = source.capacity().max(MIN_GPU_VEC_CAPACITY);
         assert!(capacity <= self.uploaded_capacity);
 
+        // if zero length, avoid doing a write as this should be handled by the counts buffer elsewhere
+        if source.is_empty() {
+            return;
+        }
+
         // can write within existing buffer
         let mut view = self
             .gpu
@@ -82,14 +87,14 @@ where
             .write_buffer_with(
                 &self.buffer,
                 0,
-                NonZero::new((4 + self.aligned_element_size * capacity) as u64).unwrap(),
+                NonZero::new((self.aligned_element_size * source.len()) as u64).unwrap(),
             )
             .unwrap();
 
         // write contents
         let mut data_bytes = source.as_gpu_bytes::<Std430Layout>();
         let data_bytes = data_bytes.as_slice();
-        view[0..data_bytes.len()].copy_from_slice(data_bytes);
+        view[..].copy_from_slice(data_bytes);
     }
 
     // returns true if buffer was reallocated

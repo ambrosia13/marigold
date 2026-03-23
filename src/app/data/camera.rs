@@ -111,7 +111,7 @@ impl Camera {
 
     pub fn update_rotation(&mut self, mouse_delta: DVec2, sensitivity: f64) {
         let yaw_delta = -mouse_delta.x * sensitivity;
-        let pitch_delta = mouse_delta.y * sensitivity;
+        let pitch_delta = -mouse_delta.y * sensitivity;
 
         self.yaw += yaw_delta;
         self.pitch += pitch_delta;

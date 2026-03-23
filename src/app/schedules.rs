@@ -173,6 +173,7 @@ impl Default for Schedules {
             input::handle_mouse_input_event,
             camera::Camera::update,
             scene::geometry::update_geometry_buffers,
+            scene::geometry::update_tlas,
         ));
 
         schedules.on_redraw_render.add_systems(

@@ -18,12 +18,12 @@ float3[6] getCubemapViewDirs(float2 uv) {
 
     float3 viewDirs[6];
 
-	viewDirs[0] = float3( a.z, -a.y, -a.x);
-	viewDirs[1] = float3(-a.z, -a.y,  a.x);
-	viewDirs[2] = float3( a.x,  a.z,  a.y);
-	viewDirs[3] = float3( a.x, -a.z, -a.y);
-	viewDirs[4] = float3( a.x, -a.y,  a.z);
-	viewDirs[5] = float3(-a.x, -a.y, -a.z);
+	viewDirs[0] = float3( a.z,  a.y, -a.x);
+	viewDirs[1] = float3(-a.z,  a.y,  a.x);
+	viewDirs[2] = float3( a.x, -a.z,  a.y);
+	viewDirs[3] = float3( a.x,  a.z, -a.y);
+	viewDirs[4] = float3( a.x,  a.y,  a.z);
+	viewDirs[5] = float3(-a.x,  a.y, -a.z);
 
     return viewDirs;
 }
@@ -55,8 +55,6 @@ float4 render(float3 viewDir, Screen screen, AtmosphereParams atmosphereParams, 
             skyViewLuts.night
         );
     } else {
-        viewDir.y *= -1.0;
-
         float atmoDistFar; 
         float atmoDistNear = rayIntersectSphere(skyViewPos, viewDir, atmosphereParams.atmosphereRadius, atmoDistFar);
         float groundDist = rayIntersectSphere(skyViewPos, viewDir, atmosphereParams.groundRadius);
@@ -80,7 +78,7 @@ float4 render(float3 viewDir, Screen screen, AtmosphereParams atmosphereParams, 
 
         color += atmosphereParams.raymarchScattering(
             skyViewPos,
-            viewDir,
+            viewDir * float3(1.0, -1.0, 1.0),
             atmosphereParams.sunDirection,
             atmosphereParams.sunColor,
             tMin,
@@ -91,7 +89,7 @@ float4 render(float3 viewDir, Screen screen, AtmosphereParams atmosphereParams, 
         
         color += atmosphereParams.raymarchScattering(
             skyViewPos,
-            viewDir,
+            viewDir * float3(1.0, -1.0, 1.0),
             atmosphereParams.moonDirection,
             atmosphereParams.moonColor * atmosphereParams.moonToSunIlluminanceRatio,
             tMin,

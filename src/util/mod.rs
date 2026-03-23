@@ -5,7 +5,16 @@ use glam::UVec3;
 pub mod buffer;
 
 pub fn get_asset_root() -> PathBuf {
-    std::env::current_dir().unwrap()
+    if let Ok(manifest_dir) = std::env::var("CARGO_MANIFEST_DIR") {
+        // running via cargo, binary is in manifest_dir/target/debug or manifest_dir/target/release, but assets is in manifest_dir/assets
+        PathBuf::from(manifest_dir)
+    } else {
+        // running the binary directly, assets is expected to be in the same directory
+        let mut path = std::env::current_exe().unwrap();
+        assert!(path.pop());
+
+        path
+    }
 }
 
 pub fn get_asset_path<P: AsRef<Path>>(asset_location: P) -> PathBuf {

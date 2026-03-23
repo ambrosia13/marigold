@@ -34,7 +34,7 @@ pub fn float_editor(value: &mut f32, ui: &mut Ui) {
     );
 }
 
-pub fn vector_editor<V, const N: usize>(values: &mut V, ui: &mut Ui)
+pub fn vector_editor<V, const N: usize>(values: &mut V, ui: &mut Ui, use_rgba: bool)
 where
     V: IndexMut<usize, Output = f32> + Into<[f32; N]>,
 {
@@ -42,7 +42,11 @@ where
         let labels_owned = (1..=N).map(|i| format!("{}", i)).collect::<Vec<String>>();
 
         let labels: &[&str] = if N <= 4 {
-            &["X", "Y", "Z", "W"]
+            if use_rgba {
+                &["R", "G", "B", "A"]
+            } else {
+                &["X", "Y", "Z", "W"]
+            }
         } else if N <= 26 {
             &[
                 "A", "B", "C", "D", "E", "F", "G", "H", "I", "J", "K", "L", "M", "N", "O", "P",
@@ -97,7 +101,7 @@ pub fn fps_graph_menu(
     fps: Res<FpsCounter>,
 ) {
     egui::Window::new("FPS Graph")
-        .default_open(false)
+        .default_open(true)
         .show(egui_render_state.context(), |ui| {
             let refresh_rate_hz = surface_state
                 .window
@@ -146,8 +150,12 @@ pub fn camera_menu(egui_render_state: NonSend<EguiRenderState>, mut camera: ResM
         .default_open(false)
         .show(egui_render_state.context(), |ui| {
             ui.label("Position:");
-            vector_editor(&mut camera.position, ui);
+            vector_editor(&mut camera.position, ui, false);
             ui.label(format!("Direction: {:.3}", camera.forward()));
+            ui.horizontal(|ui| {
+                ui.label("Speed:");
+                float_editor(&mut camera.movement_speed, ui);
+            });
         });
 }
 
@@ -167,18 +175,18 @@ pub fn atmosphere_menu(
             ui.separator();
 
             ui.label("Sun Color:");
-            vector_editor(&mut local_params.sun_color, ui);
+            vector_editor(&mut local_params.sun_color, ui, true);
 
             ui.label("Sun Direction:");
-            vector_editor(&mut local_params.sun_direction, ui);
+            vector_editor(&mut local_params.sun_direction, ui, false);
 
             ui.separator();
 
             ui.label("Moon Color:");
-            vector_editor(&mut local_params.moon_color, ui);
+            vector_editor(&mut local_params.moon_color, ui, true);
 
             ui.label("Moon Direction:");
-            vector_editor(&mut local_params.moon_direction, ui);
+            vector_editor(&mut local_params.moon_direction, ui, false);
 
             ui.horizontal(|ui| {
                 ui.label("Moon To Sun Brightness Ratio:");
@@ -219,12 +227,12 @@ pub fn atmosphere_menu(
             if origin_label.hovered() {
                 origin_label.show_tooltip_text("By default, this is 500 meters below the ground.");
             }
-            vector_editor(&mut local_params.origin, ui);
+            vector_editor(&mut local_params.origin, ui, false);
 
             ui.separator();
 
             ui.label("Rayleigh Scattering Coefficients:");
-            vector_editor(&mut local_params.rayleigh_scattering_base, ui);
+            vector_editor(&mut local_params.rayleigh_scattering_base, ui, false);
 
             ui.horizontal(|ui| {
                 ui.label("Rayleigh Absorption Coefficient:");
@@ -266,12 +274,12 @@ pub fn atmosphere_menu(
             ui.separator();
 
             ui.label("Ozone Absorption Coefficients:");
-            vector_editor(&mut local_params.ozone_absorption_base, ui);
+            vector_editor(&mut local_params.ozone_absorption_base, ui, false);
 
             ui.separator();
 
             ui.label("Ground Albedo:");
-            vector_editor(&mut local_params.ground_albedo, ui);
+            vector_editor(&mut local_params.ground_albedo, ui, true);
 
             ui.separator();
 

@@ -267,6 +267,13 @@ impl ApplicationHandler for App {
                 schedules.on_resize.run(world);
             }
             WindowEvent::RedrawRequested => {
+                // update time & fps counters before doing any work for the frame
+                let mut time = world.resource_mut::<Time>();
+                time.tick(); // calculates & updates delta
+                let delta = time.delta(); // fetches updated delta
+                let mut fps = world.resource_mut::<FpsCounter>();
+                fps.tick(delta);
+
                 // check for requests to exit the program
                 if !world.resource::<Messages<ExitMessage>>().is_empty() {
                     log::info!(
@@ -274,13 +281,6 @@ impl ApplicationHandler for App {
                     );
                     event_loop.exit();
                 }
-
-                // update time & fps counters before doing any work for the frame
-                let mut time = world.resource_mut::<Time>();
-                time.tick(); // calculates & updates delta
-                let delta = time.delta(); // fetches updated delta
-                let mut fps = world.resource_mut::<FpsCounter>();
-                fps.tick(delta);
 
                 // We want another frame after this one
                 window.request_redraw();

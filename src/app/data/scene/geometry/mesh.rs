@@ -6,13 +6,15 @@ use bevy_ecs::{
     system::{Commands, ResMut},
 };
 use derived_deref::Deref;
-use glam::Vec3;
+use glam::{Vec3, Vec3A};
 use gltf::{Gltf, mesh::Mode};
 use gpu_layout::{AsGpuBytes, GpuBytes};
+use rayon::iter::{IntoParallelRefMutIterator, ParallelIterator};
 
 use crate::{
     app::data::scene::{
-        bvh::{AsBoundingVolume, BoundingVolume},
+        Object,
+        bvh::{AsBoundingVolume, BoundingVolume, BoundingVolumeHierarchy},
         geometry::{BlasNodes, MeshTriangles, MeshVertices, Meshes},
     },
     util,
@@ -50,7 +52,7 @@ impl AsBoundingVolume for MeshTriangleWithPtr {
         let min = v1.position.min(v2.position).min(v3.position);
         let max = v1.position.max(v2.position).max(v3.position);
 
-        BoundingVolume::new(min, max)
+        BoundingVolume::new(min.to_vec3a(), max.to_vec3a())
     }
 }
 
@@ -77,11 +79,35 @@ impl AsBoundingVolume for UnserializedMesh {
     }
 }
 
-#[derive(AsGpuBytes, Default)]
+#[derive(Default, Debug, Clone)]
 pub struct MeshMetadata {
+    pub bounds_min: Vec3A,
     pub vertex_offset: u32,
+    pub bounds_max: Vec3A,
     pub triangle_offset: u32,
+    pub triangle_count: u32,
     pub blas_root: u32,
+}
+
+impl AsGpuBytes for MeshMetadata {
+    fn as_gpu_bytes<L: gpu_layout::GpuLayout + ?Sized>(&self) -> GpuBytes<L> {
+        let mut buf = GpuBytes::empty();
+
+        buf.write(&self.bounds_min.to_vec3());
+        buf.write(&self.vertex_offset);
+        buf.write(&self.bounds_max.to_vec3());
+        buf.write(&self.triangle_offset);
+        buf.write(&self.triangle_count);
+        buf.write(&self.blas_root);
+
+        buf
+    }
+}
+
+impl AsBoundingVolume for MeshMetadata {
+    fn bounding_volume(&self) -> BoundingVolume {
+        BoundingVolume::new(self.bounds_min, self.bounds_max)
+    }
 }
 
 // doesn't preserve scene data, just collects mesh
@@ -220,30 +246,45 @@ pub fn load_all_mesh_assets(
     for entry in std::fs::read_dir(&mesh_dir_path).unwrap() {
         let entry = entry.unwrap();
         let mesh_name = entry.file_name();
-        let unserialized_meshes = collect_meshes_from_gltf(Path::new("meshes").join(&mesh_name));
+        let mut unserialized_meshes =
+            collect_meshes_from_gltf(Path::new("meshes").join(&mesh_name));
 
-        for mesh in unserialized_meshes {
-            let metadata_index = meshes.len();
+        // build bvhs in parallel
+        let bvhs: Vec<_> = unserialized_meshes
+            .par_iter_mut()
+            .map(|mesh| BoundingVolumeHierarchy::new(&mut mesh.triangles, Some(mesh.bounds)))
+            .collect();
 
-            let record = MeshRecord {
-                label: mesh_name.to_string_lossy().into(),
-                bounds: mesh.bounds,
-                metadata_index,
-            };
+        // upload meshes and their bvhs in pairs
+        unserialized_meshes
+            .into_iter()
+            .zip(bvhs)
+            .enumerate()
+            .for_each(|(i, (mesh, bvh))| {
+                let metadata_index = meshes.len();
 
-            log::info!(
-                "serializing mesh and building BLAS for mesh '{}'",
-                &record.label
-            );
-            super::serialize_meshes(
-                &mut mesh_vertices,
-                &mut mesh_triangles,
-                &mut meshes,
-                &mut blases,
-                mesh,
-            );
+                let record = MeshRecord {
+                    label: mesh_name.to_string_lossy().into(),
+                    bounds: mesh.bounds,
+                    metadata_index,
+                };
 
-            loaded_meshes.records.push(record);
-        }
+                log::info!(
+                    "serializing mesh and BLAS for sub-mesh {} of mesh '{}'",
+                    i,
+                    &record.label
+                );
+
+                super::serialize_mesh(
+                    &mut mesh_vertices,
+                    &mut mesh_triangles,
+                    &mut meshes,
+                    &mut blases,
+                    mesh,
+                    bvh,
+                );
+
+                loaded_meshes.records.push(record);
+            });
     }
 }

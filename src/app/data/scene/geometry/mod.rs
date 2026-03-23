@@ -1,5 +1,5 @@
 use bevy_ecs::{
-    change_detection::DetectChanges,
+    change_detection::{DetectChanges, DetectChangesMut},
     message::{MessageReader, Messages},
     resource::Resource,
     system::{Commands, Res, ResMut},
@@ -11,6 +11,7 @@ use rand::rand_core::le;
 use crate::{
     app::{
         data::scene::{
+            Object,
             bvh::{BoundingVolumeHierarchy, BvhNode},
             geometry::mesh::{MeshMetadata, MeshTriangle, MeshVertex, UnserializedMesh},
         },
@@ -29,13 +30,28 @@ pub enum GeometryId {
     Mesh(u32),
 }
 
+impl AsGpuBytes for GeometryId {
+    fn as_gpu_bytes<L: gpu_layout::GpuLayout + ?Sized>(&self) -> GpuBytes<L> {
+        let mut buf = GpuBytes::empty();
+        buf.write(&self.encode());
+
+        buf
+    }
+}
+
+impl Default for GeometryId {
+    fn default() -> Self {
+        Self::Mesh(0)
+    }
+}
+
 impl GeometryId {
-    pub fn encode(self) -> u16 {
+    pub fn encode(self) -> u32 {
         match self {
-            GeometryId::Sphere => u16::MAX,
-            GeometryId::Aabb => u16::MAX - 1,
-            GeometryId::Quad => u16::MAX - 2,
-            GeometryId::Mesh(i) => i as u16,
+            GeometryId::Sphere => u32::MAX,
+            GeometryId::Aabb => u32::MAX - 1,
+            GeometryId::Quad => u32::MAX - 2,
+            GeometryId::Mesh(i) => i,
         }
     }
 }
@@ -67,6 +83,12 @@ pub struct BlasNodes(Vec<BvhNode>);
 
 #[derive(Resource, Deref, DerefMut)]
 pub struct BlasNodesBuffer(GpuVec<BvhNode>);
+
+#[derive(Resource, Deref, DerefMut)]
+pub struct TlasNodes(Vec<BvhNode>);
+
+#[derive(Resource, Deref, DerefMut)]
+pub struct TlasNodesBuffer(GpuVec<BvhNode>);
 
 pub fn init_geometry_buffers(mut commands: Commands, surface_state: Res<SurfaceState>) {
     log::info!("initializing scene geometry buffers");
@@ -105,6 +127,14 @@ pub fn init_geometry_buffers(mut commands: Commands, surface_state: Res<SurfaceS
         wgpu::BufferUsages::empty(),
     ));
 
+    let tlas_nodes = TlasNodes(Vec::new());
+    let tlas_nodes_buffer = TlasNodesBuffer(GpuVec::new(
+        gpu,
+        "tlas_nodes_buffer",
+        &tlas_nodes,
+        wgpu::BufferUsages::empty(),
+    ));
+
     commands.insert_resource(mesh_vertices);
     commands.insert_resource(mesh_vertices_buffer);
     commands.insert_resource(mesh_triangles);
@@ -113,21 +143,25 @@ pub fn init_geometry_buffers(mut commands: Commands, surface_state: Res<SurfaceS
     commands.insert_resource(meshes_buffer);
     commands.insert_resource(blas_nodes);
     commands.insert_resource(blas_nodes_buffer);
+    commands.insert_resource(tlas_nodes);
+    commands.insert_resource(tlas_nodes_buffer);
 }
 
 // NOT A SYSTEM
-pub fn serialize_meshes(
+pub fn serialize_mesh(
     mesh_vertices: &mut ResMut<MeshVertices>,
     mesh_triangles: &mut ResMut<MeshTriangles>,
     meshes: &mut ResMut<Meshes>,
     blas_nodes: &mut ResMut<BlasNodes>,
-    mut mesh: UnserializedMesh,
+    mesh: UnserializedMesh,
+    bvh: BoundingVolumeHierarchy,
 ) {
-    let blas = BoundingVolumeHierarchy::new(&mut mesh.triangles, Some(mesh.bounds));
-
     let mesh_metadata = MeshMetadata {
         vertex_offset: mesh_vertices.len() as u32,
+        bounds_min: mesh.bounds.min,
         triangle_offset: mesh_triangles.len() as u32,
+        bounds_max: mesh.bounds.max,
+        triangle_count: mesh.triangles.len() as u32,
         blas_root: blas_nodes.len() as u32,
     };
 
@@ -137,7 +171,7 @@ pub fn serialize_meshes(
             .into_iter()
             .map(|t| MeshTriangle { indices: t.0 }),
     );
-    blas_nodes.extend_from_slice(blas.nodes());
+    blas_nodes.extend_from_slice(bvh.nodes());
 
     meshes.push(mesh_metadata);
 }
@@ -152,6 +186,8 @@ pub fn update_geometry_buffers(
     mut meshes_buffer: ResMut<MeshesBuffer>,
     blas_nodes: Res<BlasNodes>,
     mut blas_nodes_buffer: ResMut<BlasNodesBuffer>,
+    tlas_nodes: Res<TlasNodes>,
+    mut tlas_nodes_buffer: ResMut<TlasNodesBuffer>,
 ) {
     // this clunky logic is so that we only trigger change detection on the gpu buffers when they are reallocated
     // so we defer dereferencing it mutably until we know we must reallocate
@@ -171,7 +207,8 @@ pub fn update_geometry_buffers(
         }
     }
 
-    if meshes.is_changed() {
+    // check tlas nodes too as a workaround for change detection shenanigans
+    if meshes.is_changed() || tlas_nodes.is_changed() {
         if meshes_buffer.should_reallocate(&meshes) {
             meshes_buffer.reallocate_buffer(&meshes);
         } else {
@@ -185,5 +222,26 @@ pub fn update_geometry_buffers(
         } else {
             blas_nodes_buffer.update_existing_buffer(&blas_nodes);
         }
+    }
+
+    if tlas_nodes.is_changed() {
+        if tlas_nodes_buffer.should_reallocate(&tlas_nodes) {
+            tlas_nodes_buffer.reallocate_buffer(&tlas_nodes);
+        } else {
+            tlas_nodes_buffer.update_existing_buffer(&tlas_nodes);
+        }
+    }
+}
+
+pub fn update_tlas(mut tlas_nodes: ResMut<TlasNodes>, mut meshes: ResMut<Meshes>) {
+    if meshes.is_changed() {
+        log::info!("building TLAS over {} meshes", meshes.len());
+        tlas_nodes.clear();
+
+        // need to bypass change detection to avoid triggering infinite cycle
+        let meshes = meshes.bypass_change_detection();
+
+        let bvh = BoundingVolumeHierarchy::new(meshes, None);
+        tlas_nodes.extend_from_slice(bvh.nodes());
     }
 }

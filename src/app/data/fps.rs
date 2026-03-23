@@ -24,6 +24,10 @@ impl FpsCounter {
         self.push(delta);
     }
 
+    pub fn samples(&self) -> &[Duration] {
+        &self.samples
+    }
+
     pub fn average_fps(&self) -> f64 {
         if self.count == 0 {
             return 0.0;
@@ -33,23 +37,6 @@ impl FpsCounter {
         let average_frametime = sum / self.count as u32;
 
         1.0 / average_frametime.as_secs_f64()
-    }
-
-    pub fn low_fps(&self) -> f64 {
-        if self.count <= 1 {
-            return 0.0;
-        }
-
-        let mut samples = self.samples;
-
-        let one_percent = ((self.count as f64 / 100.0) as usize).max(1);
-
-        let (lows, _threshold, _highs) = samples.select_nth_unstable(one_percent);
-        lows.iter().sum::<Duration>().as_secs_f64() / one_percent as f64
-    }
-
-    pub fn samples(&self) -> &[Duration] {
-        &self.samples[..self.count]
     }
 
     pub fn init(world: &mut World) {

@@ -1,19 +1,19 @@
-use glam::Vec3;
+use glam::{Vec3, Vec3A};
 use gpu_layout::{AsGpuBytes, GpuBytes};
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
 
 pub trait AsBoundingVolume {
     fn bounding_volume(&self) -> BoundingVolume;
 
-    fn center(&self) -> Vec3 {
+    fn center(&self) -> Vec3A {
         self.bounding_volume().center()
     }
 }
 
 #[derive(Default, Clone, Copy, Debug)]
 pub struct BoundingVolume {
-    pub min: Vec3,
-    pub max: Vec3,
+    pub min: Vec3A,
+    pub max: Vec3A,
     pub empty: bool,
 }
 
@@ -21,7 +21,7 @@ impl AsGpuBytes for BoundingVolume {
     fn as_gpu_bytes<L: gpu_layout::GpuLayout + ?Sized>(&self) -> gpu_layout::GpuBytes<'_, L> {
         let mut buf = GpuBytes::empty();
 
-        buf.write(&self.min).write(&self.max);
+        buf.write(&self.min.to_vec3()).write(&self.max.to_vec3());
 
         buf
     }
@@ -35,12 +35,12 @@ impl AsBoundingVolume for BoundingVolume {
 
 impl BoundingVolume {
     pub const EMPTY: Self = Self {
-        min: Vec3::ZERO,
-        max: Vec3::ZERO,
+        min: Vec3A::ZERO,
+        max: Vec3A::ZERO,
         empty: true,
     };
 
-    pub fn new(min: Vec3, max: Vec3) -> Self {
+    pub fn new(min: Vec3A, max: Vec3A) -> Self {
         Self {
             min,
             max,
@@ -48,7 +48,7 @@ impl BoundingVolume {
         }
     }
 
-    pub fn from_point(point: Vec3) -> Self {
+    pub fn from_point(point: Vec3A) -> Self {
         Self {
             min: point,
             max: point,
@@ -56,11 +56,11 @@ impl BoundingVolume {
         }
     }
 
-    pub fn center(self) -> Vec3 {
+    pub fn center(self) -> Vec3A {
         (self.min + self.max) * 0.5
     }
 
-    pub fn extent(self) -> Vec3 {
+    pub fn extent(self) -> Vec3A {
         self.max - self.min
     }
 
@@ -93,20 +93,35 @@ impl BoundingVolume {
     }
 }
 
-#[derive(Default, Clone, Copy, AsGpuBytes)]
+#[derive(Default, Clone, Copy, Debug)]
 pub struct BvhNode {
-    bounds: BoundingVolume,
-    start_index: u32,
-    len: u32,
-    child_node: u32,
+    pub bounds: BoundingVolume,
+    pub start_index: u32,
+    pub len: u32,
+    pub child_node: u32,
+}
+
+impl AsGpuBytes for BvhNode {
+    fn as_gpu_bytes<L: gpu_layout::GpuLayout + ?Sized>(&self) -> GpuBytes<'_, L> {
+        let mut buf = GpuBytes::empty();
+
+        buf.write(&self.bounds.min.to_vec3());
+        buf.write(&self.start_index);
+        buf.write(&self.bounds.max.to_vec3());
+        buf.write(&self.len);
+        buf.write(&self.child_node);
+
+        buf
+    }
 }
 
 impl BvhNode {
-    pub const NODE_COST: f32 = 0.0;
-    pub const OBJECT_COST: f32 = 2.0;
+    pub const NODE_COST: f32 = 1.0;
+    pub const OBJECT_COST: f32 = 8.0;
+    pub const MIN_OBJECTS_PER_NODE: u32 = 1;
 
     pub fn root<T: AsBoundingVolume>(list: &mut [T]) -> Self {
-        let mut bounds = BoundingVolume::new(Vec3::ZERO, Vec3::ZERO);
+        let mut bounds = BoundingVolume::new(Vec3A::ZERO, Vec3A::ZERO);
 
         for item in list.iter() {
             bounds.grow(item);
@@ -157,7 +172,7 @@ impl BvhNode {
         }
 
         // discourage empty nodes or nodes with only one object (because it means the node slows us down)
-        if a_count <= 1 || b_count <= 1 {
+        if a_count <= Self::MIN_OBJECTS_PER_NODE || b_count <= Self::MIN_OBJECTS_PER_NODE {
             //log::info!("Invalid split, axis: {}, threshold: {}")
             return f32::MAX;
         }
@@ -250,7 +265,7 @@ impl BvhNode {
         depth: u32,
         max_depth: u32,
     ) {
-        if depth == max_depth || self.len <= 3 {
+        if depth == max_depth || self.len <= Self::MIN_OBJECTS_PER_NODE * 2 {
             return;
         }
 
@@ -327,7 +342,7 @@ impl BoundingVolumeHierarchy {
 
         let instant = std::time::Instant::now();
 
-        let max_depth = f32::log2(list.len() as f32) as u32 + 2;
+        let max_depth = f32::log2(list.len() as f32) as u32 + 6;
 
         // create the root node
         let mut root = if let Some(bounds) = bounds {
@@ -363,14 +378,14 @@ impl BoundingVolumeHierarchy {
                 .filter(|node| node.child_node == 0)
                 .map(|node| node.len)
                 .min()
-                .unwrap();
+                .unwrap_or(root.len);
 
             let max_leaf_object_count = nodes[1..]
                 .iter()
                 .filter(|node| node.child_node == 0)
                 .map(|node| node.len)
                 .max()
-                .unwrap();
+                .unwrap_or(root.len);
 
             let average_leaf_object_count = nodes[1..]
                 .iter()
@@ -379,12 +394,26 @@ impl BoundingVolumeHierarchy {
                 .sum::<u32>() as f32
                 / leaf_node_count as f32;
 
+            fn find_height(nodes: &[BvhNode], index: u32) -> i32 {
+                if nodes[index as usize].child_node == 0 {
+                    return -1;
+                }
+
+                let lt_height = find_height(nodes, nodes[index as usize].child_node);
+                let gt_height = find_height(nodes, nodes[index as usize].child_node + 1);
+
+                lt_height.max(gt_height) + 1
+            }
+
+            let max_actual_depth = find_height(&nodes, 0);
+
             log::info!(
                 r#"
             ---------- Bounding Volume Hierarchy Info ----------
             - Object count: {},
             - Number of nodes: {},
-            - Node max depth: {},
+            - Max allowed height: {},
+            - Actual height: {},
 
             Leaf nodes:
                 - Count: {}
@@ -399,6 +428,7 @@ impl BoundingVolumeHierarchy {
                 list.len(),
                 nodes.len(),
                 max_depth,
+                max_actual_depth,
                 leaf_node_count,
                 min_leaf_object_count,
                 max_leaf_object_count,
