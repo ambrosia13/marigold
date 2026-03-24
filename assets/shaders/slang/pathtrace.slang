@@ -41,7 +41,8 @@ void compute(
         return;
     }
 
-    uint pixelId = globalInvocationId.x + globalInvocationId.y * screen.view.width;
+    uint3 groupId = globalInvocationId - localInvocationId;
+    uint pixelId = groupId.x + groupId.y * screen.view.width / 8;
     uint frameOffset = screen.view.width * screen.view.height * screen.view.frameCount;
     Random random = Random(pixelId + frameOffset);
 
