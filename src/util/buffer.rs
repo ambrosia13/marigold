@@ -1,7 +1,6 @@
-use std::{marker::PhantomData, num::NonZero, sync::Arc};
+use std::{marker::PhantomData, num::NonZero};
 
 use gpu_layout::{AsGpuBytes, Std430Layout};
-use wgpu::util::DeviceExt;
 
 use crate::{app::render::GpuHandle, util};
 

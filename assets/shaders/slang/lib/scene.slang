@@ -82,7 +82,7 @@ public struct Scene {
     }
 
     public Hit raytraceTlas(Ray ray, out uint3 traversalInfo) {
-        Stack<uint, 32> nodeStack;
+        Stack<BvhNodePayload, 32> payloadStack;
 
         Hit closestHit = Hit.NO_HIT;
 
@@ -94,27 +94,21 @@ public struct Scene {
             return closestHit;
         }
 
-        nodeStack.push(0);
+        payloadStack.push(root.payload());
         
-        while (!nodeStack.isEmpty()) {
-            uint nodeIndex = nodeStack.pop();
+        while (!payloadStack.isEmpty()) {
+            BvhNodePayload payload = payloadStack.pop();
             traversalInfo.x++; // nodes visited
-            
-            // add the mesh's root node offset because all blas-es share the same list
-            BvhNode node = tlasNodes[nodeIndex];
-            // BvhHit nodeHit = rayIntersectBoundingVolume(ray, node.boundsMin, node.boundsMax);
-            // traversalInfo.y++; // bounding box intersection tests
 
-            // skip this node if the ray doesn't hit it
-            // or if we've already found a closer hit
-            // if (!nodeHit.success || (closestHit.success && closestHit.distance < nodeHit.distance)) {
-            //     continue;
-            // }
+            uint childIndex = payload.childNode();
 
-            if (node.childNode != 0) {
+            if (childIndex != 0) {
                 // node has children, push to stack so we can test them next
-                BvhNode childA = tlasNodes[node.childNode];
-                BvhNode childB = tlasNodes[node.childNode + 1];
+                uint childAIndex = childIndex;
+                uint childBIndex = childAIndex + 1;
+
+                BvhNode childA = tlasNodes[childAIndex];
+                BvhNode childB = tlasNodes[childBIndex];
 
                 BvhHit childAHit = rayIntersectBoundingVolume(ray, childA.boundsMin, childA.boundsMax);
                 BvhHit childBHit = rayIntersectBoundingVolume(ray, childB.boundsMin, childB.boundsMax);
@@ -124,18 +118,21 @@ public struct Scene {
                 bool pushChildB = childBHit.success && !(closestHit.success && closestHit.distance < childBHit.distance);
 
                 if (pushChildA && pushChildB) {
-                    nodeStack.push(select(childAHit.distance < childBHit.distance, node.childNode + 1, node.childNode));
-                    nodeStack.push(select(childAHit.distance < childBHit.distance, node.childNode, node.childNode + 1));
+                    payloadStack.push(select(childAHit.distance < childBHit.distance, childB.payload(), childA.payload()));
+                    payloadStack.push(select(childAHit.distance < childBHit.distance, childA.payload(), childB.payload()));
                 } else if (pushChildA) {
-                    nodeStack.push(node.childNode);
+                    payloadStack.push(childA.payload());
                 } else if (pushChildB) {
-                    nodeStack.push(node.childNode + 1);
+                    payloadStack.push(childB.payload());
                 }
             } else {
+                uint startIndex = payload.startIndex;
+                uint length = payload.length();
+
                 // node has no children, trace BLASes directly
-                for (uint i = node.startIndex; i < node.startIndex + node.length; i++) {
-                    Hit hit = raytraceBlas(ray, closestHit, i, traversalInfo);
-                    closestHit = Hit.merge(closestHit, hit);
+                for (uint i = startIndex; i < startIndex + length; i++) {
+                    // raytraceBlas modifies closestHit and also modifies payloadStack
+                    raytraceBlas(ray, closestHit, i, payloadStack, traversalInfo);
                     traversalInfo.z++; // triangle intersection tests
                 }
             }
@@ -144,25 +141,27 @@ public struct Scene {
         return closestHit;
     }
 
-    public Hit raytraceBlas(Ray ray, Hit closestHit, uint meshIndex, inout uint3 traversalInfo) {
+    public void raytraceBlas(Ray ray, inout Hit closestHit, uint meshIndex, inout Stack<BvhNodePayload, 32> payloadStack, inout uint3 traversalInfo) {
         Mesh mesh = meshes[meshIndex];
-        Stack<uint, 32> nodeStack;
 
         BvhHit meshHit = rayIntersectBoundingVolume(ray, mesh.boundsMin, mesh.boundsMax);
 
         // miss the bounding volume, no hit
         if (!meshHit.success) {
-            return closestHit;
+            return;
         }
 
-        nodeStack.push(0);
+        uint baseStackSize = payloadStack.size();
+        payloadStack.push(blasNodes[mesh.blasRoot].payload());
         
-        while (!nodeStack.isEmpty()) {
-            uint nodeIndex = nodeStack.pop();
+        while (payloadStack.size() != baseStackSize) {
+            BvhNodePayload payload = payloadStack.pop();
             traversalInfo.x++; // nodes visited
+
+            uint childIndex = payload.childNode();
             
             // add the mesh's root node offset because all blas-es share the same list
-            BvhNode node = blasNodes[mesh.blasRoot + nodeIndex];
+            // BvhNode node = blasNodes[mesh.blasRoot + nodeIndex];
             // BvhHit nodeHit = rayIntersectBoundingVolume(ray, node.boundsMin, node.boundsMax);
             // traversalInfo.y++; // bounding box intersection tests
 
@@ -172,10 +171,13 @@ public struct Scene {
             //     continue;
             // }
 
-            if (node.childNode != 0) {
+            if (childIndex != 0) {
                 // node has children, push to stack so we can test them next
-                BvhNode childA = blasNodes[mesh.blasRoot + node.childNode];
-                BvhNode childB = blasNodes[mesh.blasRoot + node.childNode + 1];
+                uint childAIndex = childIndex;
+                uint childBIndex = childAIndex + 1;
+
+                BvhNode childA = blasNodes[mesh.blasRoot + childAIndex];
+                BvhNode childB = blasNodes[mesh.blasRoot + childBIndex];
 
                 BvhHit childAHit = rayIntersectBoundingVolume(ray, childA.boundsMin, childA.boundsMax);
                 BvhHit childBHit = rayIntersectBoundingVolume(ray, childB.boundsMin, childB.boundsMax);
@@ -185,24 +187,25 @@ public struct Scene {
                 bool pushChildB = childBHit.success && !(closestHit.success && closestHit.distance < childBHit.distance);
 
                 if (pushChildA && pushChildB) {
-                    nodeStack.push(select(childAHit.distance < childBHit.distance, node.childNode + 1, node.childNode));
-                    nodeStack.push(select(childAHit.distance < childBHit.distance, node.childNode, node.childNode + 1));
+                    payloadStack.push(select(childAHit.distance < childBHit.distance, childB.payload(), childA.payload()));
+                    payloadStack.push(select(childAHit.distance < childBHit.distance, childA.payload(), childB.payload()));
                 } else if (pushChildA) {
-                    nodeStack.push(node.childNode);
+                    payloadStack.push(childA.payload());
                 } else if (pushChildB) {
-                    nodeStack.push(node.childNode + 1);
+                    payloadStack.push(childB.payload());
                 }
             } else {
+                uint startIndex = payload.startIndex;
+                uint length = payload.length();
+
                 // node has no children, trace triangles directly
-                for (uint i = node.startIndex; i < node.startIndex + node.length; i++) {
+                for (uint i = startIndex; i < startIndex + length; i++) {
                     Hit hit = rayIntersectTriangle(ray, mesh.vertexOffset, mesh.triangleOffset + i);
                     closestHit = Hit.merge(closestHit, hit);
                     traversalInfo.z++; // triangle intersection tests
                 }
             }
         }
-
-        return closestHit;
     }
 }
 
@@ -246,8 +249,32 @@ public struct BvhNode {
     public float3 boundsMin;
     public uint startIndex;
     public float3 boundsMax;
-    public uint length;
-    public uint childNode;
+    uint childNodeLower27bits_lengthUpper5bits;
+
+    public BvhNodePayload payload() {
+        return BvhNodePayload(startIndex, childNodeLower27bits_lengthUpper5bits);
+    }
+
+    public uint childNode() {
+        return childNodeLower27bits_lengthUpper5bits & ((1 << 27) - 1);
+    }
+
+    public uint length() {
+        return childNodeLower27bits_lengthUpper5bits >> 27;
+    }
+}
+
+public struct BvhNodePayload {
+    public uint startIndex;
+    public uint childNodeLower27bits_lengthUpper5bits;
+
+    public uint childNode() {
+        return childNodeLower27bits_lengthUpper5bits & ((1 << 27) - 1);
+    }
+
+    public uint length() {
+        return childNodeLower27bits_lengthUpper5bits >> 27;
+    }
 }
 
 public BvhHit rayIntersectBoundingVolume(Ray ray, float3 boundsMin, float3 boundsMax) {

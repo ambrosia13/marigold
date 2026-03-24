@@ -1,11 +1,11 @@
-use std::{ops::IndexMut, time::Instant};
+use std::ops::IndexMut;
 
 use bevy_ecs::{
     message::MessageWriter,
     system::{Local, NonSend, Res, ResMut},
 };
 use egui::{DragValue, Ui};
-use egui_plot::{HLine, Legend, Line, Plot, PlotPoints, Span};
+use egui_plot::{HLine, Legend, Line, Plot, PlotPoints};
 
 use crate::{
     app::{
@@ -13,7 +13,6 @@ use crate::{
             atmosphere::AtmosphereParams,
             camera::Camera,
             fps::{self, FpsCounter},
-            time::Time,
         },
         messages::ExitMessage,
         render::SurfaceState,
@@ -66,7 +65,6 @@ where
 pub fn diagnostics_menu(
     egui_render_state: NonSend<EguiRenderState>,
     surface_state: Res<SurfaceState>,
-    time: Res<Time>,
     fps: Res<FpsCounter>,
     mut exit_messages: MessageWriter<ExitMessage>,
 ) {

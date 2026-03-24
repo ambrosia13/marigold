@@ -1,7 +1,6 @@
 use std::{collections::HashMap, ffi::OsStr, path::Path, sync::Arc};
 
 use bevy_ecs::{
-    component::Component,
     resource::Resource,
     system::{Commands, ResMut},
 };
@@ -13,7 +12,6 @@ use rayon::iter::{IntoParallelRefMutIterator, ParallelIterator};
 
 use crate::{
     app::data::scene::{
-        Object,
         bvh::{AsBoundingVolume, BoundingVolume, BoundingVolumeHierarchy},
         geometry::{BlasNodes, MeshTriangles, MeshVertices, Meshes},
     },
@@ -240,7 +238,6 @@ pub fn load_all_mesh_assets(
     mut meshes: ResMut<Meshes>,
     mut blases: ResMut<BlasNodes>,
 ) {
-    let asset_root = util::get_asset_root();
     let mesh_dir_path = util::get_asset_path("meshes");
 
     for entry in std::fs::read_dir(&mesh_dir_path).unwrap() {

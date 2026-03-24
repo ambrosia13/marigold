@@ -6,12 +6,20 @@ public struct Stack<T, let N: uint> {
         length = 0;
     }
 
+    public uint size() {
+        return length;
+    }
+
     public bool isEmpty() {
         return length == 0;
     }
 
     public bool isFull() {
         return length >= N;
+    }
+
+    public T oneAboveTop() {
+        return values[length];
     }
 
     [mutating]

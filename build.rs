@@ -37,6 +37,12 @@ fn compile(slangc: &str, regex: &Regex, errors: Sender<String>, path: &Path) {
         let relative_input_path = path.strip_prefix(INPUT_DIRECTORY).unwrap();
         let mut output_path = Path::new(OUTPUT_DIRECTORY).join(relative_input_path);
 
+        if let Some(parent) = output_path.parent()
+            && !parent.exists()
+        {
+            std::fs::create_dir_all(parent).expect("failed to create output directory");
+        }
+
         for ancestor in output_path.ancestors().skip(1) {
             // avoid recursing too far back
             if !ancestor.starts_with(INPUT_DIRECTORY) {

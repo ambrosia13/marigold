@@ -1,17 +1,14 @@
 use bevy_ecs::{
     change_detection::{DetectChanges, DetectChangesMut},
-    message::{MessageReader, Messages},
     resource::Resource,
     system::{Commands, Res, ResMut},
 };
 use derived_deref::{Deref, DerefMut};
-use gpu_layout::{AsGpuBytes, GpuBytes, Std430Layout};
-use rand::rand_core::le;
+use gpu_layout::{AsGpuBytes, GpuBytes};
 
 use crate::{
     app::{
         data::scene::{
-            Object,
             bvh::{BoundingVolumeHierarchy, BvhNode},
             geometry::mesh::{MeshMetadata, MeshTriangle, MeshVertex, UnserializedMesh},
         },

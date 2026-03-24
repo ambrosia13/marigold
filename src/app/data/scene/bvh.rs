@@ -1,4 +1,4 @@
-use glam::{Vec3, Vec3A};
+use glam::Vec3A;
 use gpu_layout::{AsGpuBytes, GpuBytes};
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
 
@@ -48,14 +48,6 @@ impl BoundingVolume {
         }
     }
 
-    pub fn from_point(point: Vec3A) -> Self {
-        Self {
-            min: point,
-            max: point,
-            empty: false,
-        }
-    }
-
     pub fn center(self) -> Vec3A {
         (self.min + self.max) * 0.5
     }
@@ -65,7 +57,7 @@ impl BoundingVolume {
     }
 
     pub fn surface_area(self) -> f32 {
-        let extent = self.max - self.min;
+        let extent = self.extent();
 
         let width = extent.x;
         let height = extent.y;
@@ -80,7 +72,7 @@ impl BoundingVolume {
     }
 
     pub fn grow_from_bounding_volume(&mut self, bounds: BoundingVolume) {
-        if !self.empty {
+        if !self.is_empty() {
             self.min = self.min.min(bounds.min);
             self.max = self.max.max(bounds.max);
         } else {
@@ -89,7 +81,7 @@ impl BoundingVolume {
     }
 
     pub fn is_empty(self) -> bool {
-        self.min.distance_squared(self.max) < 0.00001
+        self.empty
     }
 }
 
@@ -108,8 +100,15 @@ impl AsGpuBytes for BvhNode {
         buf.write(&self.bounds.min.to_vec3());
         buf.write(&self.start_index);
         buf.write(&self.bounds.max.to_vec3());
-        buf.write(&self.len);
-        buf.write(&self.child_node);
+
+        if self.child_node == 0 {
+            assert!(self.len < 32);
+        }
+
+        let packed = (self.len & 0b11111) << 27; // upper 5 bits
+        let packed = packed | (self.child_node & ((1 << 27) - 1)); // lower 27 bits
+
+        buf.write(&packed);
 
         buf
     }
@@ -342,7 +341,7 @@ impl BoundingVolumeHierarchy {
 
         let instant = std::time::Instant::now();
 
-        let max_depth = f32::log2(list.len() as f32) as u32 + 6;
+        let max_depth = 16; //f32::log2(list.len() as f32) as u32 + 6;
 
         // create the root node
         let mut root = if let Some(bounds) = bounds {

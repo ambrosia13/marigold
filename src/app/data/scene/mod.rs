@@ -3,17 +3,13 @@ use bevy_ecs::{
     resource::Resource,
     system::{Commands, Res, ResMut},
 };
-use glam::{Mat4, Quat, Vec3, Vec4};
-use gpu_layout::{AsGpuBytes, GpuBytes, Std140Layout};
+use gpu_layout::{AsGpuBytes, Std140Layout};
 use wgpu::util::DeviceExt;
 
 use crate::app::{
-    data::scene::{
-        bvh::{AsBoundingVolume, BoundingVolume},
-        geometry::{
-            BlasNodes, BlasNodesBuffer, GeometryId, MeshTriangles, MeshTrianglesBuffer,
-            MeshVertices, MeshVerticesBuffer, Meshes, MeshesBuffer, TlasNodes, TlasNodesBuffer,
-        },
+    data::scene::geometry::{
+        BlasNodes, BlasNodesBuffer, MeshTriangles, MeshTrianglesBuffer, MeshVertices,
+        MeshVerticesBuffer, Meshes, MeshesBuffer, TlasNodes, TlasNodesBuffer,
     },
     render::SurfaceState,
 };
@@ -266,31 +262,5 @@ impl SceneBinding {
                 ],
             });
         }
-    }
-}
-
-#[derive(Default, Clone)]
-pub struct Object {
-    transform_position: Vec3,
-    geometry_id: GeometryId,
-    // transform_rotation: Vec4,
-    // transform_scale: Vec3,
-    bounds: BoundingVolume,
-}
-
-impl AsGpuBytes for Object {
-    fn as_gpu_bytes<L: gpu_layout::GpuLayout + ?Sized>(&self) -> gpu_layout::GpuBytes<L> {
-        let mut buf = GpuBytes::empty();
-
-        buf.write(&self.transform_position);
-        buf.write(&self.geometry_id);
-
-        buf
-    }
-}
-
-impl AsBoundingVolume for Object {
-    fn bounding_volume(&self) -> BoundingVolume {
-        self.bounds
     }
 }

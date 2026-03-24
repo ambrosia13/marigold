@@ -2,8 +2,6 @@ use std::time::Duration;
 
 use bevy_ecs::{resource::Resource, world::World};
 
-use crate::app::data::time::Time;
-
 pub const FPS_NUM_SAMPLES: usize = 64;
 
 #[derive(Resource)]
