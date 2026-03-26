@@ -41,8 +41,9 @@ void compute(
         return;
     }
 
-    uint3 groupId = globalInvocationId - localInvocationId;
-    uint pixelId = groupId.x + groupId.y * screen.view.width / 8;
+    // uint3 groupId = globalInvocationId - localInvocationId;
+    // uint pixelId = groupId.x + groupId.y * screen.view.width / 8;
+    uint pixelId = globalInvocationId.x + globalInvocationId.y * screen.view.width;
     uint frameOffset = screen.view.width * screen.view.height * screen.view.frameCount;
     Random random = Random(pixelId + frameOffset);
 
@@ -84,14 +85,22 @@ void compute(
         if (!hit.success) {
             radiance += throughput * background.texture.SampleLevel(background.sampler, ray.dir, 0).rgb;
             break;
-        } else {
-            ray = Ray(
-                hit.biasPositionPositive(),
-                random.getCosineVector(hit.normal)
-            );
-
-            // throughput *= float3(0.95);
         }
+        
+        throughput *= float3(0.95); // fake albedo
+
+        // float inverseTerminationProbability = clamp(dot(throughput, float3(0.3333)), 0.0, 1.0);
+        // if (random.getFloat() > inverseTerminationProbability) {
+        //     break;
+        // }
+
+        // throughput *= 1.0 / inverseTerminationProbability;
+
+        ray = Ray(
+            hit.biasPositionPositive(),
+            random.getCosineVector(hit.normal)
+        );
+
     }
 
     color = radiance;

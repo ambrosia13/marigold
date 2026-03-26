@@ -85,7 +85,26 @@ impl SurfaceState {
         // enable vulkan validation layer in debug builds
         #[cfg(debug_assertions)]
         {
-            instance_flags |= wgpu::InstanceFlags::debugging();
+            let disable_validation_layers = match std::env::var("DISABLE_VALIDATION_LAYERS") {
+                Ok(flag) => match flag.parse::<u32>() {
+                    Ok(flag) => flag != 0,
+                    Err(_) => {
+                        log::warn!(
+                            "Environment variable DISABLE_VALIDATION_LAYERS={} was a non-integral value, assuming false",
+                            flag
+                        );
+                        false
+                    }
+                },
+                _ => false,
+            };
+
+            if disable_validation_layers {
+                // enable debug info, but not full validation
+                instance_flags |= wgpu::InstanceFlags::DEBUG;
+            } else {
+                instance_flags |= wgpu::InstanceFlags::debugging();
+            }
         }
 
         let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {

@@ -26,7 +26,7 @@ fn has_entrypoint(pattern: &Regex, path: &Path) -> bool {
     pattern.is_match(&source)
 }
 
-fn compile(slangc: &str, regex: &Regex, errors: Sender<String>, path: &Path) {
+fn compile(slangc: &str, regex: &Regex, debug_info: bool, errors: Sender<String>, path: &Path) {
     // println!("cargo:warning=processing: {}", path.to_string_lossy());
 
     if !path.is_dir() {
@@ -83,6 +83,10 @@ fn compile(slangc: &str, regex: &Regex, errors: Sender<String>, path: &Path) {
             cmd.arg("-fvk-use-entrypoint-name");
         }
 
+        if debug_info {
+            cmd.arg("-g3"); // maximum debug info
+        }
+
         //println!("cargo:warning={:?}", cmd);
 
         let output = cmd.output().unwrap();
@@ -133,7 +137,7 @@ fn compile(slangc: &str, regex: &Regex, errors: Sender<String>, path: &Path) {
         entries.par_iter().for_each(|e| {
             let errors = errors.clone();
             s.spawn(move |_| {
-                compile(slangc, regex, errors, &e.path());
+                compile(slangc, regex, debug_info, errors, &e.path());
             })
         });
     });
@@ -161,7 +165,8 @@ fn update_log() -> File {
 }
 
 fn main() {
-    println!("cargo::rerun-if-changed=assets/shaders/slang");
+    println!("cargo:rerun-if-changed=assets/shaders/slang");
+    println!("cargo:rerun-if-env-changed=SHADER_DEBUG_INFO");
 
     let entrypoint_regex = Regex::new(r#"\[\[shader\("(\w+)"\)]]\s*\w+\s+(\w+)\s*\("#).unwrap();
 
@@ -171,9 +176,29 @@ fn main() {
         _ => String::from("slangc"),
     };
 
+    let debug_info = match std::env::var("SHADER_DEBUG_INFO") {
+        Ok(flag) => match flag.parse::<u32>() {
+            Ok(flag) => flag != 0,
+            Err(_) => {
+                println!(
+                    "cargo:warning=Environment variable SHADER_DEBUG_INFO={} was a non-integral value, assuming false",
+                    flag
+                );
+                false
+            }
+        },
+        _ => false,
+    };
+
     let (tx, rx) = mpsc::channel();
 
-    compile(&slangc, &entrypoint_regex, tx, Path::new(INPUT_DIRECTORY));
+    compile(
+        &slangc,
+        &entrypoint_regex,
+        debug_info,
+        tx,
+        Path::new(INPUT_DIRECTORY),
+    );
 
     let mut log_file: Option<File> = None;
 
