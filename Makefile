@@ -10,9 +10,9 @@ release: TARGET_DIR = release
 release: CARGO_FLAGS = --release
 release: SHADER_DEBUG_INFO = 0
 
-# for some reason, nsight only works with release builds
-nsight: TARGET_DIR = release
-nsight: CARGO_FLAGS = --release
+# enable shader debug info in slangc for nsight builds
+nsight: TARGET_DIR = debug
+nsight: CARGO_FLAGS = 
 nsight: SHADER_DEBUG_INFO = 1
 
 .PHONY: debug release nsight build bundle clean
