@@ -179,6 +179,9 @@ public struct Scene {
                 BvhNode childA = blasNodes[mesh.blasRoot + childAIndex];
                 BvhNode childB = blasNodes[mesh.blasRoot + childBIndex];
 
+                BvhNodePayload payloadA = childA.payload();
+                BvhNodePayload payloadB = childB.payload();
+
                 BvhHit childAHit = rayIntersectBoundingVolume(ray, childA.boundsMin, childA.boundsMax);
                 BvhHit childBHit = rayIntersectBoundingVolume(ray, childB.boundsMin, childB.boundsMax);
                 traversalInfo.y += 2;
@@ -186,13 +189,22 @@ public struct Scene {
                 bool pushChildA = childAHit.success && !(closestHit.success && closestHit.distance < childAHit.distance);
                 bool pushChildB = childBHit.success && !(closestHit.success && closestHit.distance < childBHit.distance);
 
+                // 1
+                // if (pushChildA && pushChildB) {
+                //     payloadStack.push(select(childAHit.distance < childBHit.distance, payloadB, payloadA));
+                //     payloadStack.push(select(childAHit.distance < childBHit.distance, payloadA, payloadB));
+                // } else if (pushChildA) {
+                //     payloadStack.push(payloadA);
+                // } else if (pushChildB) {
+                //     payloadStack.push(payloadB);
+                // }
+
+                // 2
                 if (pushChildA && pushChildB) {
-                    payloadStack.push(select(childAHit.distance < childBHit.distance, childB.payload(), childA.payload()));
-                    payloadStack.push(select(childAHit.distance < childBHit.distance, childA.payload(), childB.payload()));
-                } else if (pushChildA) {
-                    payloadStack.push(childA.payload());
-                } else if (pushChildB) {
-                    payloadStack.push(childB.payload());
+                    payloadStack.push(select(childAHit.distance < childBHit.distance, payloadB, payloadA));
+                    payloadStack.push(select(childAHit.distance < childBHit.distance, payloadA, payloadB));
+                } else if (pushChildA || pushChildB) {
+                    payloadStack.push(select(pushChildA, payloadA, payloadB));
                 }
             } else {
                 uint startIndex = payload.startIndex;
@@ -278,8 +290,10 @@ public struct BvhNodePayload {
 }
 
 public BvhHit rayIntersectBoundingVolume(Ray ray, float3 boundsMin, float3 boundsMax) {
-    float3 t_min = (boundsMin - ray.pos) / ray.dir;
-    float3 t_max = (boundsMax - ray.pos) / ray.dir;
+    float3 invDir = 1.0 / ray.dir;
+    
+    float3 t_min = (boundsMin - ray.pos) * invDir;
+    float3 t_max = (boundsMax - ray.pos) * invDir;
 
     float3 t1 = min(t_min, t_max);
     float3 t2 = max(t_min, t_max);
@@ -294,4 +308,7 @@ public BvhHit rayIntersectBoundingVolume(Ray ray, float3 boundsMin, float3 bound
     } else {
         return BvhHit(t_far >= t_near && t_far > 0.0, t_near);
     }
+
+    // //            inside box    outside box
+    // return BvhHit(front_face || t_far >= t_near && t_far > 0.0, select(front_face, t_far, t_near));
 }
