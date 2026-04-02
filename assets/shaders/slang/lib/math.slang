@@ -12,3 +12,13 @@ public float4 pow2(float4 x) { return x * x; }
 public float safeAcos(float x) {
     return acos(clamp(x, -1.0, 1.0));
 }
+
+public float4 invertNormalizedQuaternion(float4 quat) {
+    return float4(-quat.xyz, quat.w);
+}
+
+public float3 quaternionRotate(float4 quat, float3 v) {
+    float3 axis = quat.xyz;
+    float3 t = 2.0 * cross(axis, v);
+    return v + quat.w * t + cross(axis, t);
+}

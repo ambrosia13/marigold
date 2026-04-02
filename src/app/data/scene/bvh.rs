@@ -102,11 +102,11 @@ impl AsGpuBytes for BvhNode {
         buf.write(&self.bounds.max.to_vec3());
 
         if self.child_node == 0 {
-            assert!(self.len < 32);
+            assert!(self.len < 128);
         }
 
-        let packed = (self.len & 0b11111) << 27; // upper 5 bits
-        let packed = packed | (self.child_node & ((1 << 27) - 1)); // lower 27 bits
+        let packed = (self.len & 0b11111) << 25; // upper 7 bits
+        let packed = packed | (self.child_node & ((1 << 25) - 1)); // lower 25 bits
 
         buf.write(&packed);
 
@@ -334,6 +334,7 @@ impl BoundingVolumeHierarchy {
     pub fn new<T: AsBoundingVolume + Clone + Sync>(
         list: &mut [T],
         bounds: Option<BoundingVolume>,
+        max_depth: u32,
     ) -> Self {
         if list.is_empty() {
             return Self { nodes: Vec::new() };
@@ -341,7 +342,7 @@ impl BoundingVolumeHierarchy {
 
         let instant = std::time::Instant::now();
 
-        let max_depth = 16; //f32::log2(list.len() as f32) as u32 + 6;
+        // let max_depth = 32; //f32::log2(list.len() as f32) as u32 + 6;
 
         // create the root node
         let mut root = if let Some(bounds) = bounds {
@@ -370,28 +371,19 @@ impl BoundingVolumeHierarchy {
         // print out full debug info in debug builds
         #[cfg(debug_assertions)]
         {
-            let leaf_node_count = nodes.iter().filter(|node| node.child_node == 0).count();
-
-            let min_leaf_object_count = nodes[1..]
+            let leaf_node_lengths: Vec<_> = nodes[1..]
                 .iter()
                 .filter(|node| node.child_node == 0)
                 .map(|node| node.len)
-                .min()
-                .unwrap_or(root.len);
+                .collect();
 
-            let max_leaf_object_count = nodes[1..]
-                .iter()
-                .filter(|node| node.child_node == 0)
-                .map(|node| node.len)
-                .max()
-                .unwrap_or(root.len);
+            let leaf_node_count = leaf_node_lengths.len();
 
-            let average_leaf_object_count = nodes[1..]
-                .iter()
-                .filter(|node| node.child_node == 0)
-                .map(|node| node.len)
-                .sum::<u32>() as f32
-                / leaf_node_count as f32;
+            let min_leaf_object_count = leaf_node_lengths.iter().min().unwrap_or(&root.len);
+            let max_leaf_object_count = leaf_node_lengths.iter().max().unwrap_or(&root.len);
+
+            let average_leaf_object_count =
+                leaf_node_lengths.iter().sum::<u32>() as f32 / leaf_node_count as f32;
 
             fn find_height(nodes: &[BvhNode], index: u32) -> i32 {
                 if nodes[index as usize].child_node == 0 {
@@ -439,7 +431,12 @@ impl BoundingVolumeHierarchy {
         Self { nodes }
     }
 
+    #[allow(unused)]
     pub fn nodes(&self) -> &[BvhNode] {
         &self.nodes
+    }
+
+    pub fn into_nodes(self) -> Vec<BvhNode> {
+        self.nodes
     }
 }

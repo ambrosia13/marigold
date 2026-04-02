@@ -17,6 +17,9 @@ use crate::app::{
 pub mod bvh;
 pub mod geometry;
 
+pub const TLAS_MAX_DEPTH: u32 = 8;
+pub const BLAS_MAX_DEPTH: u32 = 24;
+
 #[derive(AsGpuBytes)]
 struct Counts {
     pub triangle_vertex_count: u32,

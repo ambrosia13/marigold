@@ -4,6 +4,7 @@ use bevy_ecs::{
     system::{Commands, Res, ResMut},
 };
 use derived_deref::{Deref, DerefMut};
+use glam::Vec3A;
 use gpu_layout::{AsGpuBytes, GpuBytes};
 
 use crate::{
@@ -17,6 +18,7 @@ use crate::{
     util::buffer::GpuVec,
 };
 
+// pub mod gltf;
 pub mod mesh;
 
 #[derive(Clone, Copy)]
@@ -144,16 +146,24 @@ pub fn init_geometry_buffers(mut commands: Commands, surface_state: Res<SurfaceS
     commands.insert_resource(tlas_nodes_buffer);
 }
 
+pub struct SerializedMeshRecord {
+    vertex_offset: u32,
+    bounds_min: Vec3A,
+    triangle_offset: u32,
+    bounds_max: Vec3A,
+    triangle_count: u32,
+    blas_root: u32,
+}
+
 // NOT A SYSTEM
 pub fn serialize_mesh(
     mesh_vertices: &mut ResMut<MeshVertices>,
     mesh_triangles: &mut ResMut<MeshTriangles>,
-    meshes: &mut ResMut<Meshes>,
     blas_nodes: &mut ResMut<BlasNodes>,
     mesh: UnserializedMesh,
     bvh: BoundingVolumeHierarchy,
-) {
-    let mesh_metadata = MeshMetadata {
+) -> SerializedMeshRecord {
+    let mesh_metadata = SerializedMeshRecord {
         vertex_offset: mesh_vertices.len() as u32,
         bounds_min: mesh.bounds.min,
         triangle_offset: mesh_triangles.len() as u32,
@@ -168,9 +178,9 @@ pub fn serialize_mesh(
             .into_iter()
             .map(|t| MeshTriangle { indices: t.0 }),
     );
-    blas_nodes.extend_from_slice(bvh.nodes());
+    blas_nodes.extend(bvh.into_nodes());
 
-    meshes.push(mesh_metadata);
+    mesh_metadata
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -233,12 +243,11 @@ pub fn update_geometry_buffers(
 pub fn update_tlas(mut tlas_nodes: ResMut<TlasNodes>, mut meshes: ResMut<Meshes>) {
     if meshes.is_changed() {
         log::info!("building TLAS over {} meshes", meshes.len());
-        tlas_nodes.clear();
 
         // need to bypass change detection to avoid triggering infinite cycle
         let meshes = meshes.bypass_change_detection();
 
-        let bvh = BoundingVolumeHierarchy::new(meshes, None);
-        tlas_nodes.extend_from_slice(bvh.nodes());
+        let bvh = BoundingVolumeHierarchy::new(meshes, None, super::TLAS_MAX_DEPTH);
+        **tlas_nodes = bvh.into_nodes();
     }
 }

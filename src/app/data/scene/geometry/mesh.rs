@@ -5,13 +5,14 @@ use bevy_ecs::{
     system::{Commands, ResMut},
 };
 use derived_deref::Deref;
-use glam::{Vec3, Vec3A};
+use glam::{Mat4, Quat, Vec3, Vec3A, Vec4, Vec4Swizzles};
 use gltf::{Gltf, mesh::Mode};
 use gpu_layout::{AsGpuBytes, GpuBytes};
 use rayon::iter::{IntoParallelRefMutIterator, ParallelIterator};
 
 use crate::{
     app::data::scene::{
+        BLAS_MAX_DEPTH,
         bvh::{AsBoundingVolume, BoundingVolume, BoundingVolumeHierarchy},
         geometry::{BlasNodes, MeshTriangles, MeshVertices, Meshes},
     },
@@ -77,18 +78,33 @@ impl AsBoundingVolume for UnserializedMesh {
     }
 }
 
+struct MeshInstance {
+    pub position: Vec3,
+    pub rotation: Quat,
+    pub scale: Vec3,
+    pub mesh_index: (usize, usize),
+}
+
+pub struct GltfScene {
+    meshes: HashMap<(usize, usize), UnserializedMesh>,
+    instances: Vec<MeshInstance>,
+}
+
 #[derive(Default, Debug, Clone)]
 pub struct MeshMetadata {
     pub bounds_min: Vec3A,
     pub vertex_offset: u32,
     pub bounds_max: Vec3A,
     pub triangle_offset: u32,
+    pub position: Vec3,
     pub triangle_count: u32,
+    pub scale: Vec3,
     pub blas_root: u32,
+    pub rotation: Quat,
 }
 
 impl AsGpuBytes for MeshMetadata {
-    fn as_gpu_bytes<L: gpu_layout::GpuLayout + ?Sized>(&self) -> GpuBytes<L> {
+    fn as_gpu_bytes<L: gpu_layout::GpuLayout + ?Sized>(&self) -> GpuBytes<'_, L> {
         let mut buf = GpuBytes::empty();
 
         buf.write(&self.bounds_min.to_vec3());
@@ -98,18 +114,32 @@ impl AsGpuBytes for MeshMetadata {
         buf.write(&self.triangle_count);
         buf.write(&self.blas_root);
 
+        let transform =
+            Mat4::from_scale_rotation_translation(self.scale, self.rotation, self.position);
+
+        let inverse_transform = transform.inverse();
+
+        buf.write(&transform);
+        buf.write(&inverse_transform);
+
         buf
     }
 }
 
 impl AsBoundingVolume for MeshMetadata {
     fn bounding_volume(&self) -> BoundingVolume {
-        BoundingVolume::new(self.bounds_min, self.bounds_max)
+        let transform =
+            Mat4::from_scale_rotation_translation(self.scale, self.rotation, self.position);
+
+        BoundingVolume::new(
+            (transform * self.bounds_min.extend(1.0)).xyz().into(),
+            (transform * self.bounds_max.extend(1.0)).xyz().into(),
+        )
     }
 }
 
 // doesn't preserve scene data, just collects mesh
-fn collect_meshes_from_gltf<P: AsRef<Path>>(path: P) -> Vec<UnserializedMesh> {
+fn load_gltf<P: AsRef<Path>>(path: P) -> GltfScene {
     let path = util::get_asset_path(path);
     let error_string = format!("gltf path {} wasn't valid", path.to_string_lossy());
 
@@ -137,12 +167,20 @@ fn collect_meshes_from_gltf<P: AsRef<Path>>(path: P) -> Vec<UnserializedMesh> {
         }
     }
 
-    let meshes: Vec<UnserializedMesh> = gltf
-        .meshes()
-        .flat_map(|mesh| {
+    let mut meshes: HashMap<(usize, usize), UnserializedMesh> = HashMap::new();
+
+    gltf.meshes()
+        // don't care about mesh-primitive hierarchy, flatten
+        .for_each(|mesh| {
+            let mesh_index = mesh.index();
+
             mesh.primitives()
                 .filter(|p| p.mode() == Mode::Triangles)
-                .map(|primitive| {
+                .for_each(|primitive| {
+                    if meshes.contains_key(&(mesh_index, primitive.index())) {
+                        return; // avoid processing duplicates
+                    }
+
                     let reader = primitive.reader(|buf| match buf.source() {
                         gltf::buffer::Source::Bin => bin_data,
                         gltf::buffer::Source::Uri(uri) => Some(uri_data.get(&uri).unwrap()),
@@ -180,27 +218,48 @@ fn collect_meshes_from_gltf<P: AsRef<Path>>(path: P) -> Vec<UnserializedMesh> {
                         .expect("couldn't read mesh indices")
                         .into_u32()
                         .array_chunks::<3>()
-                        .map(|[a, b, c]| MeshTriangleWithPtr([a, b, c], vertices.clone()))
+                        .map(|indices| MeshTriangleWithPtr(indices, vertices.clone()))
                         .collect();
 
                     let primitive_bounding_box = primitive.bounding_box();
+                    let primitive_bounding_volume = BoundingVolume {
+                        min: primitive_bounding_box.min.into(),
+                        max: primitive_bounding_box.max.into(),
+                        empty: primitive_bounding_box.min == primitive_bounding_box.max,
+                    };
 
-                    UnserializedMesh {
+                    let mesh = UnserializedMesh {
                         vertices,
                         triangles,
-                        bounds: BoundingVolume {
-                            min: primitive_bounding_box.min.into(),
-                            max: primitive_bounding_box.max.into(),
-                            empty: primitive_bounding_box.min == primitive_bounding_box.max,
-                        },
-                    }
+                        bounds: primitive_bounding_volume,
+                    };
+
+                    meshes.insert((mesh_index, primitive.index()), mesh);
+                });
+        });
+
+    let instances: Vec<MeshInstance> = gltf
+        .scenes()
+        .flat_map(|s| s.nodes())
+        .filter(|n| n.mesh().is_some())
+        .flat_map(|node| {
+            let (position, rotation, scale) = node.transform().decomposed();
+            let mesh = node.mesh().unwrap();
+
+            mesh.primitives()
+                .filter(|p| p.mode() == Mode::Triangles)
+                .map(move |p| MeshInstance {
+                    position: position.into(),
+                    rotation: Quat::from_array(rotation),
+                    scale: scale.into(),
+                    mesh_index: (mesh.index(), p.index()),
                 })
         })
         .collect();
 
-    for (i, mesh) in meshes.iter().enumerate() {
+    for (i, mesh) in meshes.iter() {
         log::info!(
-            "Mesh #{} of mesh at path {} has {} vertices and {} triangles",
+            "Mesh #{:?} of mesh at path {} has {} vertices and {} triangles",
             i,
             &path.to_string_lossy(),
             mesh.vertices.len(),
@@ -208,7 +267,9 @@ fn collect_meshes_from_gltf<P: AsRef<Path>>(path: P) -> Vec<UnserializedMesh> {
         );
     }
 
-    meshes
+    log::info!("Creating {} mesh instances", instances.len());
+
+    GltfScene { meshes, instances }
 }
 
 pub struct MeshRecord {
@@ -243,21 +304,36 @@ pub fn load_all_mesh_assets(
     for entry in std::fs::read_dir(&mesh_dir_path).unwrap() {
         let entry = entry.unwrap();
         let mesh_name = entry.file_name();
-        let mut unserialized_meshes =
-            collect_meshes_from_gltf(Path::new("meshes").join(&mesh_name));
+        let gltf_scene = load_gltf(Path::new("meshes").join(&mesh_name));
+
+        let mut packed_mesh_indices: HashMap<(usize, usize), usize> = HashMap::new();
+
+        let mut unserialized_meshes: Vec<_> = gltf_scene
+            .meshes
+            .into_iter()
+            .enumerate()
+            .map(|(packed, (sparse, m))| {
+                packed_mesh_indices.insert(sparse, packed);
+                m
+            })
+            .collect();
+
+        let instances = gltf_scene.instances;
 
         // build bvhs in parallel
         let bvhs: Vec<_> = unserialized_meshes
             .par_iter_mut()
-            .map(|mesh| BoundingVolumeHierarchy::new(&mut mesh.triangles, Some(mesh.bounds)))
+            .map(|mesh| {
+                BoundingVolumeHierarchy::new(&mut mesh.triangles, Some(mesh.bounds), BLAS_MAX_DEPTH)
+            })
             .collect();
 
         // upload meshes and their bvhs in pairs
-        unserialized_meshes
+        let mesh_records: Vec<_> = unserialized_meshes
             .into_iter()
             .zip(bvhs)
             .enumerate()
-            .for_each(|(i, (mesh, bvh))| {
+            .map(|(i, (mesh, bvh))| {
                 let metadata_index = meshes.len();
 
                 let record = MeshRecord {
@@ -272,16 +348,35 @@ pub fn load_all_mesh_assets(
                     &record.label
                 );
 
+                loaded_meshes.records.push(record);
+
                 super::serialize_mesh(
                     &mut mesh_vertices,
                     &mut mesh_triangles,
-                    &mut meshes,
                     &mut blases,
                     mesh,
                     bvh,
-                );
+                )
+            })
+            .collect();
 
-                loaded_meshes.records.push(record);
-            });
+        // spawn each instance in the gltf scene
+        for instance in instances {
+            let record = &mesh_records[packed_mesh_indices[&instance.mesh_index]];
+
+            let mesh_metadata = MeshMetadata {
+                bounds_min: record.bounds_min,
+                vertex_offset: record.vertex_offset,
+                bounds_max: record.bounds_max,
+                triangle_offset: record.triangle_offset,
+                position: instance.position,
+                triangle_count: record.triangle_count,
+                scale: instance.scale,
+                blas_root: record.blas_root,
+                rotation: instance.rotation,
+            };
+
+            meshes.push(mesh_metadata);
+        }
     }
 }
