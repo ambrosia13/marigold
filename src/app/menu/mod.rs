@@ -65,7 +65,6 @@ where
 pub fn diagnostics_menu(
     egui_render_state: NonSend<EguiRenderState>,
     surface_state: Res<SurfaceState>,
-    fps: Res<FpsCounter>,
     mut exit_messages: MessageWriter<ExitMessage>,
 ) {
     egui::Window::new("Info").show(egui_render_state.context(), |ui| {

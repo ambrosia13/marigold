@@ -5,7 +5,6 @@ use bevy_ecs::{
 };
 use derived_deref::{Deref, DerefMut};
 use glam::Vec3A;
-use gpu_layout::{AsGpuBytes, GpuBytes};
 
 use crate::{
     app::{
@@ -18,7 +17,7 @@ use crate::{
     util::buffer::GpuVec,
 };
 
-// pub mod gltf;
+pub mod gltf;
 pub mod mesh;
 
 // the below need to be their own resource structs for change detection
