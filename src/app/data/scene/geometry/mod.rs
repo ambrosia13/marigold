@@ -21,44 +21,9 @@ use crate::{
 // pub mod gltf;
 pub mod mesh;
 
-#[derive(Clone, Copy)]
-pub enum GeometryId {
-    Sphere,
-    Aabb,
-    Quad,
-    Mesh(u32),
-}
-
-impl AsGpuBytes for GeometryId {
-    fn as_gpu_bytes<L: gpu_layout::GpuLayout + ?Sized>(&self) -> GpuBytes<L> {
-        let mut buf = GpuBytes::empty();
-        buf.write(&self.encode());
-
-        buf
-    }
-}
-
-impl Default for GeometryId {
-    fn default() -> Self {
-        Self::Mesh(0)
-    }
-}
-
-impl GeometryId {
-    pub fn encode(self) -> u32 {
-        match self {
-            GeometryId::Sphere => u32::MAX,
-            GeometryId::Aabb => u32::MAX - 1,
-            GeometryId::Quad => u32::MAX - 2,
-            GeometryId::Mesh(i) => i,
-        }
-    }
-}
-
-// need the below to be their own resource structs for change detection
+// the below need to be their own resource structs for change detection
 // e.g. when MeshVertices is changed, update MeshVerticesBuffer
 // when MeshVerticesBuffer is changed (buffer reallocated), update any bindings that contain it
-
 #[derive(Resource, Deref, DerefMut)]
 pub struct MeshVertices(Vec<MeshVertex>);
 
@@ -173,11 +138,7 @@ pub fn serialize_mesh(
     };
 
     mesh_vertices.extend_from_slice(&mesh.vertices);
-    mesh_triangles.extend(
-        mesh.triangles
-            .into_iter()
-            .map(|t| MeshTriangle { indices: t.0 }),
-    );
+    mesh_triangles.extend_from_slice(&mesh.triangles);
     blas_nodes.extend(bvh.into_nodes());
 
     mesh_metadata
@@ -247,7 +208,7 @@ pub fn update_tlas(mut tlas_nodes: ResMut<TlasNodes>, mut meshes: ResMut<Meshes>
         // need to bypass change detection to avoid triggering infinite cycle
         let meshes = meshes.bypass_change_detection();
 
-        let bvh = BoundingVolumeHierarchy::new(meshes, None, super::TLAS_MAX_DEPTH);
+        let bvh = BoundingVolumeHierarchy::new(meshes, &[], None, super::TLAS_MAX_DEPTH);
         **tlas_nodes = bvh.into_nodes();
     }
 }

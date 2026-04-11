@@ -12,34 +12,9 @@ use bevy_ecs::{
 };
 
 use crate::app::{
-    data::time::Time,
+    data::{profile, time::Time},
     render::{GpuHandle, SurfaceState},
 };
-
-pub const DEBUG_PROFILER_SAMPLE_COUNT: usize = 60;
-
-struct SampleList {
-    samples: [Duration; DEBUG_PROFILER_SAMPLE_COUNT],
-    index: usize,
-    count: usize,
-}
-
-impl SampleList {
-    fn push(&mut self, duration: Duration) {
-        self.samples[self.index] = duration;
-        self.index = (self.index + 1) % self.samples.len();
-        self.count = (self.count + 1).min(self.samples.len());
-    }
-
-    pub fn average(&self) -> Duration {
-        if self.count == 0 {
-            return Duration::ZERO;
-        }
-
-        let sum: Duration = self.samples.iter().take(self.count).sum();
-        sum / self.count as u32
-    }
-}
 
 pub struct DebugProfiler {}
 
@@ -60,12 +35,12 @@ impl TimeQuery {
         let query_set = device.create_query_set(&wgpu::QuerySetDescriptor {
             label: None,
             ty: wgpu::QueryType::Timestamp,
-            count: 2 * DEBUG_PROFILER_SAMPLE_COUNT as u32, // one for before timestamp, one for after, multiplied by the number of samples
+            count: 2 * profile::FPS_NUM_SAMPLES as u32, // one for before timestamp, one for after, multiplied by the number of samples
         });
 
         let resolve_buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: None,
-            size: 2 * 8 * DEBUG_PROFILER_SAMPLE_COUNT as u64, // 2 u64s, 8 bytes each, multiplied by the number of samples
+            size: 2 * 8 * profile::FPS_NUM_SAMPLES as u64, // 2 u64s, 8 bytes each, multiplied by the number of samples
             usage: wgpu::BufferUsages::QUERY_RESOLVE | wgpu::BufferUsages::COPY_SRC,
             mapped_at_creation: false,
         });
@@ -92,7 +67,7 @@ impl TimeQuery {
     }
 
     fn wrap_sample_index(&self) -> u32 {
-        self.current_sample_index % DEBUG_PROFILER_SAMPLE_COUNT as u32
+        self.current_sample_index % profile::FPS_NUM_SAMPLES as u32
     }
 
     pub fn compute_timestamp_writes(&self) -> wgpu::ComputePassTimestampWrites<'_> {

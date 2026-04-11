@@ -13,7 +13,7 @@ use winit::{
 
 use crate::{
     app::{
-        data::{fps::FpsCounter, time::Time},
+        data::{profile::FpsCounter, time::Time},
         messages::{ExitMessage, KeyInputMessage, MouseInputMessage, MouseMotionMessage},
         render::{FrameRecord, SurfaceState},
         schedules::Schedules,

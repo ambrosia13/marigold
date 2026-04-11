@@ -9,7 +9,7 @@ use glam::UVec3;
 
 use crate::{
     app::{
-        data::{camera::ScreenBinding, scene::SceneBinding},
+        data::{camera::ScreenBinding, profile::GeometryPassFrametimes, scene::SceneBinding},
         pass::background::BackgroundBinding,
         render::{FrameRecord, SurfaceState},
     },
@@ -191,11 +191,14 @@ pub fn create_pathtrace_pipeline(
 
 // draw geometry with the active geometry pipeline
 pub fn draw_geometry(
+    surface_state: Res<SurfaceState>,
     mut frame: ResMut<FrameRecord>,
     screen_binding: Res<ScreenBinding>,
     background_binding: Res<BackgroundBinding>,
     scene_binding: Res<SceneBinding>,
     geometry_textures: Res<GeometryTextures>,
+
+    mut frametimes: ResMut<GeometryPassFrametimes>,
 
     active_pipeline: Single<&GeometryPipeline, With<ActiveGeometryPipeline>>,
 ) {
@@ -228,5 +231,21 @@ pub fn draw_geometry(
     );
 
     let workgroups = util::get_workgroup_count_from_size(workgroup_size, dimensions);
+
+    // TODO: replace this with gpu time queries
+    let start = std::time::Instant::now();
+
     compute_pass.dispatch_workgroups(workgroups.x, workgroups.y, workgroups.z);
+
+    surface_state
+        .gpu
+        .device
+        .poll(wgpu::PollType::Wait {
+            submission_index: None,
+            timeout: None,
+        })
+        .unwrap();
+
+    let time = start.elapsed();
+    frametimes.tick(time);
 }

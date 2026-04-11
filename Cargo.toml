@@ -35,7 +35,7 @@ derived-deref = "2.1.0"
 rayon = "1.11.0"
 
 # data manipulation
-gpu_layout = "0.2.1"
+gpu_layout = "0.2.2"
 bytemuck = "1.24.0"
 
 # noise & random

@@ -1403,9 +1403,9 @@ dependencies = [
 
 [[package]]
 name = "gpu_layout"
-version = "0.2.1"
+version = "0.2.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "803a8b18f25eb97c48168172fa6017013b815b5dbcd79ab174e9bf57597bc9a8"
+checksum = "c3fa48a3233bf42fd28b22b974de60193f0bf09a3cdfac0eb3065e1c89ee32a0"
 dependencies = [
  "bytemuck",
  "glam",

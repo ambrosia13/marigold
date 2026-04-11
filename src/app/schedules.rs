@@ -19,7 +19,7 @@ Event-driven:
 use bevy_ecs::schedule::{ExecutorKind, IntoScheduleConfigs, Schedule, ScheduleLabel};
 
 use crate::app::{
-    data::{atmosphere, camera, fps, input, scene, time},
+    data::{atmosphere, camera, input, profile, scene, time},
     menu,
     messages::{
         AtmosphereRebakeMessage, ExitMessage, KeyInputMessage, MouseInputMessage,
@@ -127,7 +127,8 @@ impl Default for Schedules {
         schedules.on_init_app_setup.add_systems(
             (
                 time::Time::init,
-                fps::FpsCounter::init,
+                profile::FpsCounter::init,
+                profile::GeometryPassFrametimes::init,
                 (
                     input::Input::init,
                     camera::Camera::init,
@@ -205,7 +206,7 @@ impl Default for Schedules {
         schedules.on_redraw_menu_update.add_systems(
             (
                 menu::diagnostics_menu,
-                menu::fps_graph_menu,
+                menu::performance_metric_menu,
                 menu::controls_menu,
                 menu::camera_menu,
                 menu::atmosphere_menu,

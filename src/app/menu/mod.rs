@@ -12,7 +12,7 @@ use crate::{
         data::{
             atmosphere::AtmosphereParams,
             camera::Camera,
-            fps::{self, FpsCounter},
+            profile::{self, FpsCounter, GeometryPassFrametimes},
         },
         messages::ExitMessage,
         render::SurfaceState,
@@ -81,26 +81,25 @@ pub fn diagnostics_menu(
 
         ui.separator();
 
-        let average_fps = fps.average_fps();
-        ui.label(format!("Average FPS: {:.1}", average_fps));
-        ui.label(format!("Average frametime: {:.3}", 1000.0 / average_fps));
-
-        ui.separator();
-
         if ui.button("Exit marigold").clicked() {
             exit_messages.write(ExitMessage);
         }
     });
 }
 
-pub fn fps_graph_menu(
+pub fn performance_metric_menu(
     egui_render_state: NonSend<EguiRenderState>,
     surface_state: Res<SurfaceState>,
     fps: Res<FpsCounter>,
+    geometry_frametimes: Res<GeometryPassFrametimes>,
 ) {
-    egui::Window::new("FPS Graph")
+    egui::Window::new("Performance Metrics")
         .default_open(true)
         .show(egui_render_state.context(), |ui| {
+            let average_fps = fps.average_fps();
+            ui.label(format!("Average FPS: {:.1}", average_fps));
+            ui.label(format!("Average frametime: {:.3}", 1000.0 / average_fps));
+
             let refresh_rate_hz = surface_state
                 .window
                 .current_monitor()
@@ -113,26 +112,51 @@ pub fn fps_graph_menu(
                 .map(|(i, d)| [i as f64, 1.0 / d.as_secs_f64()])
                 .collect();
 
-            Plot::new("FPS Graph")
-                .legend(Legend::default())
-                .default_x_bounds(0.0, fps::FPS_NUM_SAMPLES as f64)
-                .default_y_bounds(0.0, 150.0)
-                .show(ui, |plot_ui| {
-                    plot_ui
-                        .set_plot_bounds_y(0.0..=refresh_rate_hz.map(|r| r * 1.5).unwrap_or(150.0));
-
-                    if let Some(refresh_rate_hz) = refresh_rate_hz {
-                        plot_ui.hline(
-                            HLine::new("refresh rate", refresh_rate_hz).color(egui::Color32::GREEN),
+            egui::CollapsingHeader::new("FPS Graph").show(ui, |ui| {
+                Plot::new("FPS Graph")
+                    .legend(Legend::default())
+                    .default_x_bounds(0.0, profile::FPS_NUM_SAMPLES as f64)
+                    .default_y_bounds(0.0, 150.0)
+                    .show(ui, |plot_ui| {
+                        plot_ui.set_plot_bounds_y(
+                            0.0..=refresh_rate_hz.map(|r| r * 1.5).unwrap_or(150.0),
                         );
-                    }
 
-                    plot_ui.line(
-                        Line::new("fps", points)
-                            .color(egui::Color32::RED)
-                            .style(egui_plot::LineStyle::Solid),
-                    );
-                });
+                        if let Some(refresh_rate_hz) = refresh_rate_hz {
+                            plot_ui.hline(
+                                HLine::new("refresh rate", refresh_rate_hz)
+                                    .color(egui::Color32::GREEN),
+                            );
+                        }
+
+                        plot_ui.line(
+                            Line::new("fps", points)
+                                .color(egui::Color32::RED)
+                                .style(egui_plot::LineStyle::Solid),
+                        );
+                    });
+            });
+
+            let points: PlotPoints<'_> = geometry_frametimes
+                .samples()
+                .iter()
+                .enumerate()
+                .map(|(i, d)| [i as f64, d.as_secs_f64()])
+                .collect();
+
+            egui::CollapsingHeader::new("Pass Duration Graph").show(ui, |ui| {
+                Plot::new("Pass Duration Graph")
+                    .legend(Legend::default())
+                    .default_x_bounds(0.0, profile::FPS_NUM_SAMPLES as f64)
+                    .default_y_bounds(0.0, 16.667)
+                    .show(ui, |plot_ui| {
+                        plot_ui.line(
+                            Line::new("geometry pass", points)
+                                .color(egui::Color32::RED)
+                                .style(egui_plot::LineStyle::Solid),
+                        );
+                    });
+            });
         });
 }
 

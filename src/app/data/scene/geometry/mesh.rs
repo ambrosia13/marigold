@@ -13,7 +13,7 @@ use rayon::iter::{IntoParallelRefMutIterator, ParallelIterator};
 use crate::{
     app::data::scene::{
         BLAS_MAX_DEPTH,
-        bvh::{AsBoundingVolume, BoundingVolume, BoundingVolumeHierarchy},
+        bvh::{AsBoundingVolume, AsBoundingVolumeIndices, BoundingVolume, BoundingVolumeHierarchy},
         geometry::{BlasNodes, MeshTriangles, MeshVertices, Meshes},
     },
     util,
@@ -32,21 +32,11 @@ pub struct MeshTriangle {
     pub indices: [u32; 3],
 }
 
-impl From<MeshTriangleWithPtr> for MeshTriangle {
-    fn from(value: MeshTriangleWithPtr) -> Self {
-        Self { indices: value.0 }
-    }
-}
-
-#[derive(Deref, Clone)]
-pub struct MeshTriangleWithPtr(#[target] pub [u32; 3], Arc<Vec<MeshVertex>>);
-
-impl AsBoundingVolume for MeshTriangleWithPtr {
-    fn bounding_volume(&self) -> BoundingVolume {
-        let [a, b, c] = self.0;
-        let v1 = &self.1[a as usize];
-        let v2 = &self.1[b as usize];
-        let v3 = &self.1[c as usize];
+impl AsBoundingVolumeIndices<MeshVertex> for MeshTriangle {
+    fn bounding_volume(&self, source: &[MeshVertex]) -> BoundingVolume {
+        let v1 = &source[self.indices[0] as usize];
+        let v2 = &source[self.indices[1] as usize];
+        let v3 = &source[self.indices[2] as usize];
 
         let min = v1.position.min(v2.position).min(v3.position);
         let max = v1.position.max(v2.position).max(v3.position);
@@ -55,20 +45,10 @@ impl AsBoundingVolume for MeshTriangleWithPtr {
     }
 }
 
-impl AsGpuBytes for MeshTriangleWithPtr {
-    fn as_gpu_bytes<L: gpu_layout::GpuLayout + ?Sized>(&self) -> gpu_layout::GpuBytes<'_, L> {
-        let mut buf = GpuBytes::empty();
-
-        buf.write(&self.0[0]).write(&self.0[1]).write(&self.0[2]);
-
-        buf
-    }
-}
-
 // state/info of a mesh before it's been prepared to upload to the gpu
 pub struct UnserializedMesh {
-    pub vertices: Arc<Vec<MeshVertex>>,
-    pub triangles: Vec<MeshTriangleWithPtr>,
+    pub vertices: Vec<MeshVertex>,
+    pub triangles: Vec<MeshTriangle>,
     pub bounds: BoundingVolume,
 }
 
@@ -210,15 +190,13 @@ fn load_gltf<P: AsRef<Path>>(path: P) -> GltfScene {
                         })
                         .collect();
 
-                    let vertices = Arc::new(vertices);
-
                     // no need to check remainder since Mode == Triangles?
                     let triangles: Vec<_> = reader
                         .read_indices()
                         .expect("couldn't read mesh indices")
                         .into_u32()
                         .array_chunks::<3>()
-                        .map(|indices| MeshTriangleWithPtr(indices, vertices.clone()))
+                        .map(|indices| MeshTriangle { indices })
                         .collect();
 
                     let primitive_bounding_box = primitive.bounding_box();
@@ -324,7 +302,12 @@ pub fn load_all_mesh_assets(
         let bvhs: Vec<_> = unserialized_meshes
             .par_iter_mut()
             .map(|mesh| {
-                BoundingVolumeHierarchy::new(&mut mesh.triangles, Some(mesh.bounds), BLAS_MAX_DEPTH)
+                BoundingVolumeHierarchy::new(
+                    &mut mesh.triangles,
+                    &mesh.vertices,
+                    Some(mesh.bounds),
+                    BLAS_MAX_DEPTH,
+                )
             })
             .collect();
 
