@@ -220,7 +220,7 @@ public struct Scene {
 
                     // transform hit
                     hit.position.xyz = mul(mesh.transform, float4(hit.position.xyz, 1.0)).xyz;
-                    hit.normal = normalize(mul(transpose(float3x3(mesh.transform)), hit.normal));
+                    hit.normal = normalize(mul(hit.normal, float3x3(mesh.inverseTransform)));
                     hit.distance = distance(hit.position, ray.pos);
 
                     closestHit = Hit.merge(closestHit, hit);

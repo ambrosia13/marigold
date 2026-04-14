@@ -52,9 +52,7 @@ pub struct UnserializedMesh {
 }
 
 pub struct MeshInstance {
-    pub position: Vec3,
-    pub rotation: Quat,
-    pub scale: Vec3,
+    pub transform: Mat4,
     pub mesh_index: usize,
 }
 
@@ -70,11 +68,9 @@ pub struct MeshMetadata {
     pub vertex_offset: u32,
     pub bounds_max: Vec3A,
     pub triangle_offset: u32,
-    pub position: Vec3,
+    pub transform: Mat4,
     pub triangle_count: u32,
-    pub scale: Vec3,
     pub blas_root: u32,
-    pub rotation: Quat,
 }
 
 impl AsGpuBytes for MeshMetadata {
@@ -88,12 +84,9 @@ impl AsGpuBytes for MeshMetadata {
         buf.write(&self.triangle_count);
         buf.write(&self.blas_root);
 
-        let transform =
-            Mat4::from_scale_rotation_translation(self.scale, self.rotation, self.position);
+        let inverse_transform = self.transform.inverse();
 
-        let inverse_transform = transform.inverse();
-
-        buf.write(&transform);
+        buf.write(&self.transform);
         buf.write(&inverse_transform);
 
         buf
@@ -102,12 +95,9 @@ impl AsGpuBytes for MeshMetadata {
 
 impl AsBoundingVolume for MeshMetadata {
     fn bounding_volume(&self) -> BoundingVolume {
-        let transform =
-            Mat4::from_scale_rotation_translation(self.scale, self.rotation, self.position);
-
         BoundingVolume::new(
-            (transform * self.bounds_min.extend(1.0)).xyz().into(),
-            (transform * self.bounds_max.extend(1.0)).xyz().into(),
+            (self.transform * self.bounds_min.extend(1.0)).xyz().into(),
+            (self.transform * self.bounds_max.extend(1.0)).xyz().into(),
         )
     }
 }
@@ -203,11 +193,9 @@ pub fn load_all_mesh_assets(
                 vertex_offset: record.vertex_offset,
                 bounds_max: record.bounds_max,
                 triangle_offset: record.triangle_offset,
-                position: instance.position,
                 triangle_count: record.triangle_count,
-                scale: instance.scale,
                 blas_root: record.blas_root,
-                rotation: instance.rotation,
+                transform: instance.transform,
             };
 
             meshes.push(mesh_metadata);

@@ -1,6 +1,6 @@
 use std::{collections::HashMap, ffi::OsStr, path::Path};
 
-use glam::{Quat, Vec3};
+use glam::{Mat4, Vec3};
 use gltf::{Gltf, mesh::Mode};
 
 use crate::{
@@ -12,9 +12,7 @@ use crate::{
 };
 
 struct GltfMeshInstance {
-    pub position: Vec3,
-    pub rotation: Quat,
-    pub scale: Vec3,
+    pub transform: Mat4,
     pub mesh_index: (usize, usize),
 }
 
@@ -24,7 +22,30 @@ pub struct GltfScene {
 }
 
 impl GltfScene {
-    // doesn't preserve scene data, just collects mesh
+    fn traverse_scene(
+        node: gltf::Node<'_>,
+        parent_transform: Mat4,
+        instances: &mut Vec<GltfMeshInstance>,
+    ) {
+        let local_transform = Mat4::from_cols_array_2d(&node.transform().matrix());
+        let global_transform = parent_transform * local_transform;
+
+        if let Some(mesh) = node.mesh() {
+            mesh.primitives()
+                .filter(|p| p.mode() == Mode::Triangles)
+                .for_each(|p| {
+                    instances.push(GltfMeshInstance {
+                        transform: global_transform,
+                        mesh_index: (mesh.index(), p.index()),
+                    })
+                });
+        }
+
+        for node in node.children() {
+            Self::traverse_scene(node, global_transform, instances);
+        }
+    }
+
     pub fn load<P: AsRef<Path>>(path: P) -> Self {
         let path = util::get_asset_path(path);
         let error_string = format!("gltf path {} wasn't valid", path.to_string_lossy());
@@ -122,24 +143,13 @@ impl GltfScene {
                     });
             });
 
-        let instances: Vec<GltfMeshInstance> = gltf
-            .scenes()
-            .flat_map(|s| s.nodes())
-            .filter(|n| n.mesh().is_some())
-            .flat_map(|node| {
-                let (position, rotation, scale) = node.transform().decomposed();
-                let mesh = node.mesh().unwrap();
+        let mut instances = Vec::new();
 
-                mesh.primitives()
-                    .filter(|p| p.mode() == Mode::Triangles)
-                    .map(move |p| GltfMeshInstance {
-                        position: position.into(),
-                        rotation: Quat::from_array(rotation),
-                        scale: scale.into(),
-                        mesh_index: (mesh.index(), p.index()),
-                    })
-            })
-            .collect();
+        for scene in gltf.scenes() {
+            for node in scene.nodes() {
+                Self::traverse_scene(node, Mat4::IDENTITY, &mut instances);
+            }
+        }
 
         for (i, mesh) in meshes.iter() {
             log::info!(
@@ -171,9 +181,7 @@ impl GltfScene {
             self.instances
                 .into_iter()
                 .map(|i| MeshInstance {
-                    position: i.position,
-                    rotation: i.rotation,
-                    scale: i.scale,
+                    transform: i.transform,
                     mesh_index: packed_mesh_indices[&i.mesh_index],
                 })
                 .collect(),
