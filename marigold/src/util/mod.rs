@@ -4,6 +4,23 @@ use glam::UVec3;
 
 pub mod buffer;
 
+pub fn get_runtime_flag(name: &str) -> bool {
+    match std::env::var(name) {
+        Ok(flag) => match flag.parse::<u32>() {
+            Ok(flag) => flag != 0,
+            Err(_) => {
+                log::warn!(
+                    "Environment variable {}={} was a non-integral value, assuming false",
+                    name,
+                    flag
+                );
+                false
+            }
+        },
+        _ => false,
+    }
+}
+
 pub fn get_asset_root() -> PathBuf {
     if let Ok(manifest_dir) = std::env::var("CARGO_MANIFEST_DIR") {
         // running via cargo, binary is in manifest_dir/target/debug or manifest_dir/target/release, but assets is in manifest_dir/assets

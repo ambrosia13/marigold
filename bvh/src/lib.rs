@@ -1,4 +1,7 @@
-use std::sync::{Arc, atomic::AtomicU32};
+use std::{
+    path::Path,
+    sync::{Arc, atomic::AtomicU32},
+};
 
 use glam::Vec3A;
 use gpu_layout::{AsGpuBytes, GpuBytes};
@@ -378,6 +381,14 @@ impl BvhNode {
     }
 }
 
+pub struct BvhSettings<'a> {
+    pub name: &'a str,
+    pub bounds: Option<BoundingVolume>,
+    pub max_depth: u32,
+    pub profiling_info: bool,
+    pub profiling_info_directory: Option<&'a Path>,
+}
+
 pub struct BoundingVolumeHierarchy {
     nodes: Vec<BvhNode>,
 }
@@ -386,8 +397,7 @@ impl BoundingVolumeHierarchy {
     pub fn new<S: Sync, T: AsBoundingVolumeIndices<S> + Clone + Sync>(
         list: &mut [T],
         source: &[S],
-        bounds: Option<BoundingVolume>,
-        max_depth: u32,
+        settings: BvhSettings<'_>,
     ) -> Self {
         if list.is_empty() {
             return Self { nodes: Vec::new() };
@@ -398,7 +408,7 @@ impl BoundingVolumeHierarchy {
         // let max_depth = 32; //f32::log2(list.len() as f32) as u32 + 6;
 
         // create the root node
-        let mut root = if let Some(bounds) = bounds {
+        let mut root = if let Some(bounds) = settings.bounds {
             BvhNode::root_with_bounds(list, bounds)
         } else {
             BvhNode::root(list, source)
@@ -411,21 +421,21 @@ impl BoundingVolumeHierarchy {
         let height = Arc::new(AtomicU32::new(0));
 
         if !list.is_empty() {
-            root.split(list, source, &mut nodes, 0, height.clone(), max_depth);
+            root.split(
+                list,
+                source,
+                &mut nodes,
+                0,
+                height.clone(),
+                settings.max_depth,
+            );
             nodes[0] = root;
         }
 
         let construction_time = instant.elapsed().as_secs_f64();
 
-        // print out construction time in release builds
-        #[cfg(not(debug_assertions))]
-        {
-            log::info!("BVH took {} seconds to build", construction_time);
-        }
-
-        // print out full debug info in debug builds
-        #[cfg(debug_assertions)]
-        {
+        if settings.profiling_info {
+            // full debug info
             let leaf_node_lengths: Vec<_> = nodes[1..]
                 .iter()
                 .filter(|node| node.child_node == 0)
@@ -462,7 +472,7 @@ impl BoundingVolumeHierarchy {
             "#,
                 list.len(),
                 nodes.len(),
-                max_depth,
+                settings.max_depth,
                 height,
                 leaf_node_count,
                 min_leaf_object_count,
@@ -470,6 +480,13 @@ impl BoundingVolumeHierarchy {
                 average_leaf_object_count,
                 construction_time
             );
+
+            if let Some(_path) = settings.profiling_info_directory {
+                // write info to disk
+            }
+        } else {
+            // simple debug info
+            log::info!("BVH took {} seconds to build", construction_time);
         }
 
         Self { nodes }

@@ -28,3 +28,4 @@ This is useful for preparing a binary for programs like RenderDoc and NVIDIA NSi
 
 - `WINIT_UNIX_BACKEND`: if set to `x11`, creates an X11 window; if set to `wayland`, creates a Wayland window; otherwise let winit decide. This is useful for programs like RenderDoc which don't work well in wayland.
 - `DISABLE_VALIDATION_LAYERS`: only applies in debug builds; set to any value other than 0 to keep debug info present but explicitly disable vulkan validation layers
+- `PROFILING_INFO`: set to any value other than 0 to log and/or write profiling information to disk for optimization analysis over several builds

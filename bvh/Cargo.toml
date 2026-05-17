@@ -1,0 +1,17 @@
+[package]
+name = "bvh"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+# game engine stuff
+glam = "0.30.9"
+
+# logging
+log = "0.4.29"
+
+# general utility
+rayon = "1.11.0"
+
+# data manipulation
+gpu_layout = "0.2.2"

@@ -1,0 +1,4 @@
+assets/disabled
+assets/shaders/target
+shader_compile_errors
+.cargo

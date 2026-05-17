@@ -3,18 +3,19 @@ use bevy_ecs::{
     resource::Resource,
     system::{Commands, Res, ResMut},
 };
+use bvh::{BoundingVolumeHierarchy, BvhNode, BvhSettings};
 use derived_deref::{Deref, DerefMut};
 use glam::Vec3A;
 
 use crate::{
     app::{
         data::scene::{
-            bvh::{BoundingVolumeHierarchy, BvhNode},
+            TLAS_MAX_DEPTH,
             geometry::mesh::{MeshMetadata, MeshTriangle, MeshVertex, UnserializedMesh},
         },
         render::SurfaceState,
     },
-    util::buffer::GpuVec,
+    util::{self, buffer::GpuVec},
 };
 
 pub mod gltf;
@@ -207,7 +208,15 @@ pub fn update_tlas(mut tlas_nodes: ResMut<TlasNodes>, mut meshes: ResMut<Meshes>
         // need to bypass change detection to avoid triggering infinite cycle
         let meshes = meshes.bypass_change_detection();
 
-        let bvh = BoundingVolumeHierarchy::new(meshes, &[], None, super::TLAS_MAX_DEPTH);
+        let settings = BvhSettings {
+            name: "tlas",
+            bounds: None,
+            max_depth: TLAS_MAX_DEPTH,
+            profiling_info: util::get_runtime_flag("PROFILING_INFO"),
+            profiling_info_directory: None,
+        };
+
+        let bvh = BoundingVolumeHierarchy::new(meshes, &[], settings);
         **tlas_nodes = bvh.into_nodes();
     }
 }

@@ -6,6 +6,7 @@ use winit::{dpi::PhysicalSize, window::Window};
 
 #[expect(unused)]
 pub mod debug;
+pub mod ecs;
 
 pub const WGPU_FEATURES: wgpu::Features = wgpu::Features::FLOAT32_FILTERABLE
     .union(wgpu::Features::RG11B10UFLOAT_RENDERABLE)
@@ -85,21 +86,9 @@ impl SurfaceState {
         // enable vulkan validation layer in debug builds
         #[cfg(debug_assertions)]
         {
-            let disable_validation_layers = match std::env::var("DISABLE_VALIDATION_LAYERS") {
-                Ok(flag) => match flag.parse::<u32>() {
-                    Ok(flag) => flag != 0,
-                    Err(_) => {
-                        log::warn!(
-                            "Environment variable DISABLE_VALIDATION_LAYERS={} was a non-integral value, assuming false",
-                            flag
-                        );
-                        false
-                    }
-                },
-                _ => false,
-            };
+            use crate::util::get_runtime_flag;
 
-            if disable_validation_layers {
+            if get_runtime_flag("DISABLE_VALIDATION_LAYERS") {
                 // enable debug info, but not full validation
                 instance_flags |= wgpu::InstanceFlags::DEBUG;
             } else {
@@ -162,6 +151,8 @@ impl SurfaceState {
         };
 
         surface.configure(&device, &config);
+
+        log::info!("initial surface configuration: {:#?}", config);
 
         Ok(Self {
             surface,

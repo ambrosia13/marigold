@@ -4,15 +4,17 @@ use bevy_ecs::{
     resource::Resource,
     system::{Commands, ResMut},
 };
+use bvh::{
+    AsBoundingVolume, AsBoundingVolumeIndices, BoundingVolume, BoundingVolumeHierarchy, BvhSettings,
+};
 use derived_deref::Deref;
-use glam::{Mat4, Quat, Vec3, Vec3A, Vec4Swizzles};
+use glam::{Mat4, Vec3, Vec3A, Vec4Swizzles};
 use gpu_layout::{AsGpuBytes, GpuBytes};
-use rayon::iter::{IntoParallelRefMutIterator, ParallelIterator};
+use rayon::iter::{IndexedParallelIterator, IntoParallelRefMutIterator, ParallelIterator};
 
 use crate::{
     app::data::scene::{
         BLAS_MAX_DEPTH,
-        bvh::{AsBoundingVolume, AsBoundingVolumeIndices, BoundingVolume, BoundingVolumeHierarchy},
         geometry::{BlasNodes, MeshTriangles, MeshVertices, Meshes, gltf::GltfScene},
     },
     util,
@@ -139,16 +141,23 @@ pub fn load_all_mesh_assets(
         let gltf_scene = GltfScene::load(Path::new("meshes").join(&mesh_name));
         let (mut unserialized_meshes, instances) = gltf_scene.into_meshes_and_instances();
 
+        let mesh_name = mesh_name.to_string_lossy();
+        let mesh_name_str: &str = &mesh_name;
+
         // build bvhs in parallel
         let bvhs: Vec<_> = unserialized_meshes
             .par_iter_mut()
-            .map(|mesh| {
-                BoundingVolumeHierarchy::new(
-                    &mut mesh.triangles,
-                    &mesh.vertices,
-                    Some(mesh.bounds),
-                    BLAS_MAX_DEPTH,
-                )
+            .enumerate()
+            .map(|(index, mesh)| {
+                let settings = BvhSettings {
+                    name: &format!("{}_{}", mesh_name_str, index),
+                    bounds: Some(mesh.bounds),
+                    max_depth: BLAS_MAX_DEPTH,
+                    profiling_info: util::get_runtime_flag("PROFILING_INFO"),
+                    profiling_info_directory: None,
+                };
+
+                BoundingVolumeHierarchy::new(&mut mesh.triangles, &mesh.vertices, settings)
             })
             .collect();
 
@@ -161,7 +170,7 @@ pub fn load_all_mesh_assets(
                 let metadata_index = meshes.len();
 
                 let record = MeshRecord {
-                    label: mesh_name.to_string_lossy().into(),
+                    label: mesh_name_str.to_owned(),
                     bounds: mesh.bounds,
                     metadata_index,
                 };

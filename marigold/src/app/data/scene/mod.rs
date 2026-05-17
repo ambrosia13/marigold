@@ -3,7 +3,6 @@ use bevy_ecs::{
     resource::Resource,
     system::{Commands, Res, ResMut},
 };
-use glam::{Mat4, Quat, Vec3A};
 use gpu_layout::{AsGpuBytes, Std140Layout};
 use wgpu::util::DeviceExt;
 
@@ -15,7 +14,6 @@ use crate::app::{
     render::SurfaceState,
 };
 
-pub mod bvh;
 pub mod geometry;
 
 pub const TLAS_MAX_DEPTH: u32 = 8;

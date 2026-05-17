@@ -32,7 +32,7 @@ void compute(
     uniform ParameterBlock<Background> background,
     uniform ParameterBlock<Scene> scene,
     uniform ParameterBlock<GeometryTextures> textures,
-    
+
     uint3 globalInvocationId: SV_DispatchThreadID,
     uint3 localInvocationId: SV_GroupThreadID,
     uint localInvocationIndex: SV_GroupIndex,
@@ -53,7 +53,7 @@ void compute(
     Ray ray = Ray(screen.camera.position, viewDir);
 
     float3 color = background.texture.SampleLevel(background.sampler, viewDir, 0).rgb;
-    
+
     uint3 traversalInfo = uint3(0);
 
     // Hit hit = Hit.NO_HIT;
@@ -65,8 +65,8 @@ void compute(
 
 
 
-    Hit hit = scene.raytraceTlas(ray, traversalInfo);
-    color = float3(traversalInfo) / 500.0;
+    // Hit hit = scene.raytraceTlas(ray, traversalInfo);
+    // color = float3(traversalInfo) / 500.0;
 
     // if (hit.success) {
     //     color = max(float3(0.0), hit.normal);
@@ -75,35 +75,35 @@ void compute(
     // }
 
 
-    // float3 radiance = float3(0.0);
-    // float3 throughput = float3(1.0);
+    float3 radiance = float3(0.0);
+    float3 throughput = float3(1.0);
 
-    // uint bounces = 5;
-    // for (uint i = 0; i < bounces; i++) {
-    //     Hit hit = scene.raytraceTlas(ray, traversalInfo);
+    uint bounces = 5;
+    for (uint i = 0; i < bounces; i++) {
+        Hit hit = scene.raytraceTlas(ray, traversalInfo);
 
-    //     if (!hit.success) {
-    //         radiance += throughput * background.texture.SampleLevel(background.sampler, ray.dir, 0).rgb;
-    //         break;
-    //     }
-        
-    //     throughput *= float3(0.95); // fake albedo
+        if (!hit.success) {
+            radiance += throughput * background.texture.SampleLevel(background.sampler, ray.dir, 0).rgb;
+            break;
+        }
 
-    //     // float inverseTerminationProbability = clamp(dot(throughput, float3(0.3333)), 0.0, 1.0);
-    //     // if (random.getFloat() > inverseTerminationProbability) {
-    //     //     break;
-    //     // }
+        throughput *= float3(0.95); // fake albedo
 
-    //     // throughput *= 1.0 / inverseTerminationProbability;
+        // float inverseTerminationProbability = clamp(dot(throughput, float3(0.3333)), 0.0, 1.0);
+        // if (random.getFloat() > inverseTerminationProbability) {
+        //     break;
+        // }
 
-    //     ray = Ray(
-    //         hit.biasPositionPositive(),
-    //         random.getCosineVector(hit.normal)
-    //     );
+        // throughput *= 1.0 / inverseTerminationProbability;
 
-    // }
+        ray = Ray(
+            hit.biasPositionPositive(),
+            random.getCosineVector(hit.normal)
+        );
 
-    // color = radiance;
+    }
+
+    color = radiance;
 
     float4 previousSample = textures.previous.Load(int3(globalInvocationId.xy, 0));
     float3 previousColor = previousSample.rgb;
@@ -120,7 +120,7 @@ void compute(
     // BvhNode rootNode = scene.blasNodes[mesh.blasRoot];
     // BvhNode rootChildA = scene.blasNodes[mesh.blasRoot + rootNode.childNode];
     // BvhNode rootChildB = scene.blasNodes[mesh.blasRoot + rootNode.childNode + 1];
-    
+
     // color = float3(bool3(
     //     rayIntersectBoundingVolume(ray, rootNode.boundsMin, rootNode.boundsMax).success,
     //     rayIntersectBoundingVolume(ray, rootChildA.boundsMin, rootChildA.boundsMax).success,
@@ -133,7 +133,7 @@ void compute(
     //     BvhNode node = scene.blasNodes[i];
     //     color += float(rayIntersectBoundingVolume(ray, node.boundsMin, node.boundsMax).success) / 10.0;
     // }
-    
+
     // color = float3(0.0);
     // while (true) {
     //     color += float(rayIntersectBoundingVolume(ray, rootNode.boundsMin, rootNode.boundsMax).success) / 10.0;

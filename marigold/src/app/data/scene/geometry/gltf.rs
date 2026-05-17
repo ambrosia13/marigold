@@ -1,13 +1,11 @@
 use std::{collections::HashMap, ffi::OsStr, path::Path};
 
+use bvh::BoundingVolume;
 use glam::{Mat4, Vec3};
 use gltf::{Gltf, mesh::Mode};
 
 use crate::{
-    app::data::scene::{
-        bvh::BoundingVolume,
-        geometry::mesh::{MeshInstance, MeshTriangle, MeshVertex, UnserializedMesh},
-    },
+    app::data::scene::geometry::mesh::{MeshInstance, MeshTriangle, MeshVertex, UnserializedMesh},
     util,
 };
 
