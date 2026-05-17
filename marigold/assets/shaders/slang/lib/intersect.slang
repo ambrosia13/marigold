@@ -1,6 +1,13 @@
 public struct Ray {
     public float3 pos;
     public float3 dir;
+    public float3 invDir;
+
+    public __init(float3 pos, float3 dir) {
+        this.pos = pos;
+        this.dir = dir;
+        invDir = 1.0 / dir;
+    }
 
     public Hit intersect<T>(T object)
         where T: Hittable
@@ -16,7 +23,7 @@ public struct Hit {
     public float3 normal;
     public bool frontFace;
     public float2 uv;
-    
+
     public bool success;
 
     public static const Hit NO_HIT = Hit();
@@ -64,8 +71,8 @@ public struct Hit {
         // }
 
         // 2
-        bool useA = 
-            select(a.success, a.distance, float.maxValue) < 
+        bool useA =
+            select(a.success, a.distance, float.maxValue) <
             select(b.success, b.distance, float.maxValue);
 
         hit = select(useA, a, b);

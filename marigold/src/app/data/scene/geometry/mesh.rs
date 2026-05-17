@@ -79,9 +79,9 @@ impl AsGpuBytes for MeshMetadata {
     fn as_gpu_bytes<L: gpu_layout::GpuLayout + ?Sized>(&self) -> GpuBytes<'_, L> {
         let mut buf = GpuBytes::empty();
 
-        buf.write(&self.bounds_min.to_vec3());
+        buf.write(&self.bounds_min);
         buf.write(&self.vertex_offset);
-        buf.write(&self.bounds_max.to_vec3());
+        buf.write(&self.bounds_max);
         buf.write(&self.triangle_offset);
         buf.write(&self.triangle_count);
         buf.write(&self.blas_root);

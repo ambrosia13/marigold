@@ -44,7 +44,7 @@ impl AsGpuBytes for BoundingVolume {
     fn as_gpu_bytes<L: gpu_layout::GpuLayout + ?Sized>(&self) -> gpu_layout::GpuBytes<'_, L> {
         let mut buf = GpuBytes::empty();
 
-        buf.write(&self.min.to_vec3()).write(&self.max.to_vec3());
+        buf.write(&self.min).write(&self.max);
 
         buf
     }
@@ -121,9 +121,9 @@ impl AsGpuBytes for BvhNode {
     fn as_gpu_bytes<L: gpu_layout::GpuLayout + ?Sized>(&self) -> GpuBytes<'_, L> {
         let mut buf = GpuBytes::empty();
 
-        buf.write(&self.bounds.min.to_vec3());
+        buf.write(&self.bounds.min);
         buf.write(&self.start_index);
-        buf.write(&self.bounds.max.to_vec3());
+        buf.write(&self.bounds.max);
 
         if self.child_node == 0 {
             assert!(self.len < 128);

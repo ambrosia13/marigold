@@ -34,10 +34,10 @@ public struct Scene {
 
         // float3 edge1 = v2_pos - v1_pos;
         // float3 edge2 = v3_pos - v1_pos;
-        
+
         float3 edge1 = v2.position - v1.position;
         float3 edge2 = v3.position - v1.position;
-        
+
         float3 h = cross(ray.dir, edge2);
         float determinant = dot(h, edge1);
 
@@ -100,7 +100,7 @@ public struct Scene {
         }
 
         payloadStack.push(root.payload());
-        
+
         while (!payloadStack.isEmpty()) {
             BvhNodePayload payload = payloadStack.pop();
             traversalInfo.x++; // nodes visited
@@ -147,10 +147,10 @@ public struct Scene {
     }
 
     public void raytraceBlas(
-        Ray ray, 
-        inout Hit closestHit, 
-        uint meshIndex, 
-        inout Stack<BvhNodePayload, BVH_STACK_SIZE> payloadStack, 
+        Ray ray,
+        inout Hit closestHit,
+        uint meshIndex,
+        inout Stack<BvhNodePayload, BVH_STACK_SIZE> payloadStack,
         inout uint3 traversalInfo
     ) {
         Mesh mesh = meshes[meshIndex];
@@ -169,7 +169,7 @@ public struct Scene {
 
         uint baseStackSize = payloadStack.size();
         payloadStack.push(blasNodes[mesh.blasRoot].payload());
-        
+
         while (payloadStack.size() != baseStackSize) {
             BvhNodePayload payload = payloadStack.pop();
             traversalInfo.x++; // nodes visited
@@ -180,7 +180,7 @@ public struct Scene {
                 // node has children, push to stack so we can test them next
                 BvhNode childA = blasNodes[mesh.blasRoot + childIndex];
                 BvhNode childB = blasNodes[mesh.blasRoot + childIndex + 1];
-                
+
                 float closestHitDistance = select(closestHit.success, closestHit.distance, float.maxValue);
 
                 BvhNodePayload payloadA = childA.payload();
@@ -302,10 +302,8 @@ public struct BvhNodePayload {
 }
 
 public BvhHit rayIntersectBoundingVolume(Ray ray, float3 boundsMin, float3 boundsMax) {
-    float3 invDir = 1.0 / ray.dir;
-    
-    float3 t_min = (boundsMin - ray.pos) * invDir;
-    float3 t_max = (boundsMax - ray.pos) * invDir;
+    float3 t_min = (boundsMin - ray.pos) * ray.invDir;
+    float3 t_max = (boundsMax - ray.pos) * ray.invDir;
 
     float3 t1 = min(t_min, t_max);
     float3 t2 = max(t_min, t_max);
@@ -315,12 +313,12 @@ public BvhHit rayIntersectBoundingVolume(Ray ray, float3 boundsMin, float3 bound
 
     bool front_face = t_near == 0.0;
 
-    if (front_face) { // ray inside box
-        return BvhHit(true, t_far);   
-    } else {
-        return BvhHit(t_far >= t_near && t_far > 0.0, t_near);
-    }
+    // if (front_face) { // ray inside box
+    //     return BvhHit(true, t_far);
+    // } else {
+    //     return BvhHit(t_far >= t_near && t_far > 0.0, t_near);
+    // }
 
-    // //            inside box    outside box
-    // return BvhHit(front_face || t_far >= t_near && t_far > 0.0, select(front_face, t_far, t_near));
+    //            inside box    outside box
+    return BvhHit(front_face || t_far >= t_near && t_far > 0.0, select(front_face, t_far, t_near));
 }
