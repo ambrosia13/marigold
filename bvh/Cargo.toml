@@ -12,6 +12,8 @@ log = "0.4.29"
 
 # general utility
 rayon = "1.11.0"
+serde = { version = "1.0.228", features = ["derive"] }
+serde_json = "1.0.149"
 
 # data manipulation
 gpu_layout = "0.2.2"

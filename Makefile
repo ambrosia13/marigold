@@ -40,3 +40,7 @@ bundle: release
 
 clean:
 	rm -rf out/
+
+scrub:
+	rm -rf marigold/bvh_debug
+	rm -rf marigold/shader_compile_errors

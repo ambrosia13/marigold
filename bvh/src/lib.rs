@@ -1,4 +1,6 @@
 use std::{
+    fs::File,
+    io::Write,
     path::Path,
     sync::{Arc, atomic::AtomicU32},
 };
@@ -6,6 +8,7 @@ use std::{
 use glam::Vec3A;
 use gpu_layout::{AsGpuBytes, GpuBytes};
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
+use serde::Serialize;
 
 pub trait AsBoundingVolume {
     fn bounding_volume(&self) -> BoundingVolume;
@@ -389,6 +392,20 @@ pub struct BvhSettings<'a> {
     pub profiling_info_directory: Option<&'a Path>,
 }
 
+#[derive(Serialize)]
+struct BvhProfilingInfo<'a> {
+    name: &'a str,
+    construction_time: f64,
+    node_count: u32,
+    leaf_node_count: u32,
+    min_leaf_object_count: u32,
+    max_leaf_object_count: u32,
+    avg_leaf_object_count: f64,
+    stddev_leaf_object_count: f64,
+    height: u32,
+    max_depth: u32,
+}
+
 pub struct BoundingVolumeHierarchy {
     nodes: Vec<BvhNode>,
 }
@@ -444,11 +461,18 @@ impl BoundingVolumeHierarchy {
 
             let leaf_node_count = leaf_node_lengths.len();
 
-            let min_leaf_object_count = leaf_node_lengths.iter().min().unwrap_or(&root.len);
-            let max_leaf_object_count = leaf_node_lengths.iter().max().unwrap_or(&root.len);
+            let min_leaf_object_count = *leaf_node_lengths.iter().min().unwrap_or(&root.len);
+            let max_leaf_object_count = *leaf_node_lengths.iter().max().unwrap_or(&root.len);
 
-            let average_leaf_object_count =
-                leaf_node_lengths.iter().sum::<u32>() as f32 / leaf_node_count as f32;
+            let avg_leaf_object_count =
+                leaf_node_lengths.iter().sum::<u32>() as f64 / leaf_node_count as f64;
+
+            let stddev_leaf_object_count = (leaf_node_lengths
+                .iter()
+                .map(|&l| (l as f64 - avg_leaf_object_count).powi(2))
+                .sum::<f64>()
+                / leaf_node_count as f64)
+                .sqrt();
 
             let height = height.load(std::sync::atomic::Ordering::Relaxed);
 
@@ -466,6 +490,7 @@ impl BoundingVolumeHierarchy {
                     - Min: {}
                     - Max: {}
                     - Average: {}
+                    - Standard Deviation: {}
 
             Construction time: {} seconds
             ----------------------------------------------------
@@ -477,12 +502,42 @@ impl BoundingVolumeHierarchy {
                 leaf_node_count,
                 min_leaf_object_count,
                 max_leaf_object_count,
-                average_leaf_object_count,
+                avg_leaf_object_count,
+                stddev_leaf_object_count,
                 construction_time
             );
 
-            if let Some(_path) = settings.profiling_info_directory {
-                // write info to disk
+            let info = BvhProfilingInfo {
+                name: settings.name,
+                construction_time,
+                node_count: nodes.len() as u32,
+                leaf_node_count: leaf_node_count as u32,
+                min_leaf_object_count,
+                max_leaf_object_count,
+                avg_leaf_object_count,
+                stddev_leaf_object_count,
+                height,
+                max_depth: settings.max_depth,
+            };
+
+            // write the info to disk for external tools such as plotting libraries to analyze effect of optimization
+            if let Some(path) = settings.profiling_info_directory {
+                std::fs::create_dir_all(path).unwrap();
+
+                let json_path = path.join(format!(
+                    "bvh_{}_{}.json",
+                    settings.name,
+                    env!("BVH_BUILD_ID")
+                ));
+
+                if !json_path.exists() {
+                    let mut file = File::create(json_path)
+                        .expect("unable to create file on disk for bvh profile info");
+
+                    let json = serde_json::to_string(&info).unwrap();
+                    writeln!(file, "{}", json)
+                        .expect("unable to write to bvh profile info file on disk");
+                }
             }
         } else {
             // simple debug info

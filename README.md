@@ -21,9 +21,12 @@ This is useful for preparing a binary for programs like RenderDoc and NVIDIA NSi
 - `make debug`: builds the program in debug mode
 - `make release`: builds the program in release mode
 - `make nsight`: builds the program in debug mode, providing configuration required for nsight debugging
-    - enables shader debug info
-    - disables validation layers
+  - enables shader debug info
+  - disables validation layers
 - `make bundle`: performs `make release`, then archives `out/marigold` into `out/marigold.tar.gz`.
+- `make clean`: delete the entire `out` directory
+- `make scrub`: deletes non-build related directories that may have accumulated debug info over time
+  - `marigold/bvh_debug` and `marigold/shader_compile_errors`
 
 # Environment Variables
 

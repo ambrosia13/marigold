@@ -471,6 +471,8 @@ dependencies = [
  "gpu_layout",
  "log",
  "rayon",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

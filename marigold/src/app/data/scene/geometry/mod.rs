@@ -1,3 +1,5 @@
+use std::path::Path;
+
 use bevy_ecs::{
     change_detection::{DetectChanges, DetectChangesMut},
     resource::Resource,
@@ -213,7 +215,7 @@ pub fn update_tlas(mut tlas_nodes: ResMut<TlasNodes>, mut meshes: ResMut<Meshes>
             bounds: None,
             max_depth: TLAS_MAX_DEPTH,
             profiling_info: util::get_runtime_flag("PROFILING_INFO"),
-            profiling_info_directory: None,
+            profiling_info_directory: Some(&util::get_asset_root().join("bvh_debug")),
         };
 
         let bvh = BoundingVolumeHierarchy::new(meshes, &[], settings);
