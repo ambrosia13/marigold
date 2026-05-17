@@ -891,7 +891,6 @@ checksum = "d8b14ccef22fc6f5a8f4d7d768562a182c04ce9a3b3157b91390b52ddfdf1a76"
 [[package]]
 name = "ecolor"
 version = "0.33.3"
-source = "git+https://github.com/ambrosia13/egui#8bdf81289e62b27646e6a7f8f6f3c51c43d70f50"
 dependencies = [
  "bytemuck",
  "emath",
@@ -900,7 +899,6 @@ dependencies = [
 [[package]]
 name = "egui"
 version = "0.33.3"
-source = "git+https://github.com/ambrosia13/egui#8bdf81289e62b27646e6a7f8f6f3c51c43d70f50"
 dependencies = [
  "accesskit",
  "ahash",
@@ -917,7 +915,6 @@ dependencies = [
 [[package]]
 name = "egui-wgpu"
 version = "0.33.3"
-source = "git+https://github.com/ambrosia13/egui#8bdf81289e62b27646e6a7f8f6f3c51c43d70f50"
 dependencies = [
  "ahash",
  "bytemuck",
@@ -934,7 +931,6 @@ dependencies = [
 [[package]]
 name = "egui-winit"
 version = "0.33.3"
-source = "git+https://github.com/ambrosia13/egui#8bdf81289e62b27646e6a7f8f6f3c51c43d70f50"
 dependencies = [
  "arboard",
  "bytemuck",
@@ -954,7 +950,6 @@ dependencies = [
 [[package]]
 name = "egui_plot"
 version = "0.34.1"
-source = "git+https://github.com/ambrosia13/egui_plot#d66a845a1bd5caca12a46ab59013ca98f1c4fc24"
 dependencies = [
  "ahash",
  "egui",
@@ -970,7 +965,6 @@ checksum = "48c757948c5ede0e46177b7add2e67155f70e33c07fea8284df6576da70b3719"
 [[package]]
 name = "emath"
 version = "0.33.3"
-source = "git+https://github.com/ambrosia13/egui#8bdf81289e62b27646e6a7f8f6f3c51c43d70f50"
 dependencies = [
  "bytemuck",
 ]
@@ -1001,7 +995,6 @@ dependencies = [
 [[package]]
 name = "epaint"
 version = "0.33.3"
-source = "git+https://github.com/ambrosia13/egui#8bdf81289e62b27646e6a7f8f6f3c51c43d70f50"
 dependencies = [
  "ahash",
  "bytemuck",
@@ -1022,7 +1015,6 @@ dependencies = [
 [[package]]
 name = "epaint_default_fonts"
 version = "0.33.3"
-source = "git+https://github.com/ambrosia13/egui#8bdf81289e62b27646e6a7f8f6f3c51c43d70f50"
 
 [[package]]
 name = "equivalent"
