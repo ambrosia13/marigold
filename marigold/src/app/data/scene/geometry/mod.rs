@@ -1,5 +1,3 @@
-use std::path::Path;
-
 use bevy_ecs::{
     change_detection::{DetectChanges, DetectChangesMut},
     resource::Resource,
