@@ -373,43 +373,43 @@ impl BvhNode {
         child_gt.bounds = bounds_gt;
 
         // std partition without extra bounds loop
-        let object_span =
-            &mut list[self.start_index as usize..(self.start_index + self.len) as usize];
+        // let object_span =
+        //     &mut list[self.start_index as usize..(self.start_index + self.len) as usize];
 
-        let split = object_span
-            .iter_mut()
-            .partition_in_place(|object| object.center(source)[split_axis] <= split_threshold);
+        // let split = object_span
+        //     .iter_mut()
+        //     .partition_in_place(|object| object.center(source)[split_axis] <= split_threshold);
 
-        let (lt, gt) = object_span.split_at_mut(split);
+        // let (lt, gt) = object_span.split_at_mut(split);
 
-        child_lt.len = lt.len() as u32;
-        child_gt.len = gt.len() as u32;
+        // child_lt.len = lt.len() as u32;
+        // child_gt.len = gt.len() as u32;
 
-        child_gt.start_index = self.start_index + child_lt.len;
+        // child_gt.start_index = self.start_index + child_lt.len;
 
         // manual partition
-        // let greater = |object: &T| object.center(source)[split_axis] > split_threshold;
+        let greater = |object: &T| object.center(source)[split_axis] > split_threshold;
 
-        // for global_index in self.start_index..(self.start_index + self.len) {
-        //     let global_index = global_index as usize;
-        //     let object = &list[global_index];
+        for global_index in self.start_index..(self.start_index + self.len) {
+            let global_index = global_index as usize;
+            let object = &list[global_index];
 
-        //     if greater(object) {
-        //         // child_gt
-        //         //     .bounds
-        //         //     .grow_from_bounding_volume(object.bounding_volume(source));
-        //         child_gt.len += 1;
+            if greater(object) {
+                // child_gt
+                //     .bounds
+                //     .grow_from_bounding_volume(object.bounding_volume(source));
+                child_gt.len += 1;
 
-        //         let swap_index = (child_gt.start_index + child_gt.len) as usize - 1;
-        //         list.swap(swap_index, global_index);
-        //         child_lt.start_index += 1;
-        //     } else {
-        //         // child_lt
-        //         //     .bounds
-        //         //     .grow_from_bounding_volume(object.bounding_volume(source));
-        //         child_lt.len += 1;
-        //     }
-        // }
+                let swap_index = (child_gt.start_index + child_gt.len) as usize - 1;
+                list.swap(swap_index, global_index);
+                child_lt.start_index += 1;
+            } else {
+                // child_lt
+                //     .bounds
+                //     .grow_from_bounding_volume(object.bounding_volume(source));
+                child_lt.len += 1;
+            }
+        }
 
         if child_gt.len > 0 && child_lt.len > 0 {
             self.child_node = nodes.len() as u32;
