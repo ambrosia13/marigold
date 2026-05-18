@@ -470,6 +470,7 @@ dependencies = [
  "glam",
  "gpu_layout",
  "log",
+ "rand",
  "rayon",
  "serde",
  "serde_json",
@@ -480,6 +481,9 @@ name = "bvh_sample_collector"
 version = "0.1.0"
 dependencies = [
  "bvh",
+ "gltf_loading",
+ "mesh_interface",
+ "rayon",
 ]
 
 [[package]]

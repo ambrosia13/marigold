@@ -30,6 +30,7 @@ impl AsBoundingVolumeIndices<MeshVertex> for MeshTriangle {
 }
 
 /// state/info of a mesh before it's been prepared to upload to the gpu
+#[derive(Clone)]
 pub struct UnserializedMesh {
     pub vertices: Vec<MeshVertex>,
     pub triangles: Vec<MeshTriangle>,

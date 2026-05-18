@@ -4,7 +4,10 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-
+# general utility
+rayon = "1.11.0"
 
 # workspace dependencies
 bvh = { path = "../bvh" }
+mesh_interface = { path = "../mesh_interface" }
+gltf_loading = { path = "../gltf_loading" }

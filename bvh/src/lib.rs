@@ -9,6 +9,7 @@ use std::{
 
 use glam::Vec3A;
 use gpu_layout::{AsGpuBytes, GpuBytes};
+use rand::Rng;
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
 use serde::Serialize;
 
@@ -570,10 +571,8 @@ impl BoundingVolumeHierarchy {
             if let Some(path) = settings.profiling_info_directory {
                 std::fs::create_dir_all(path).unwrap();
 
-                let build_id = std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .unwrap()
-                    .as_secs();
+                // random 9 digit number for the id
+                let build_id = rand::rng().random_range(100000000..=999999999);
 
                 let json_path = path.join(format!("bvh_{}_{}.json", settings.name, build_id,));
 
