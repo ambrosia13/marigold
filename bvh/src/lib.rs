@@ -141,7 +141,8 @@ impl AsGpuBytes for BvhNode {
 impl BvhNode {
     pub const DEPTH_COST: f32 = 1.0;
     pub const OBJECT_COST: f32 = 8.0;
-    pub const MIN_OBJECTS_PER_NODE: u32 = 2;
+    pub const MIN_OBJECTS_PER_NODE: u32 = 1;
+    pub const MAX_OBJECTS_PER_NODE: u32 = 1;
 
     pub fn root<S, T: AsBoundingVolumeIndices<S>>(list: &mut [T], source: &[S]) -> Self {
         let mut bounds = BoundingVolume::new(Vec3A::ZERO, Vec3A::ZERO);
@@ -402,6 +403,7 @@ struct BvhProfilingInfo<'a> {
     max_leaf_object_count: u32,
     avg_leaf_object_count: f64,
     stddev_leaf_object_count: f64,
+    total_object_count: u32,
     height: u32,
     max_depth: u32,
 }
@@ -516,6 +518,7 @@ impl BoundingVolumeHierarchy {
                 max_leaf_object_count,
                 avg_leaf_object_count,
                 stddev_leaf_object_count,
+                total_object_count: list.len() as u32,
                 height,
                 max_depth: settings.max_depth,
             };

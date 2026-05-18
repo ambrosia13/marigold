@@ -18,14 +18,17 @@ Event-driven:
 
 use bevy_ecs::schedule::{ExecutorKind, IntoScheduleConfigs, Schedule, ScheduleLabel};
 
-use crate::app::{
-    data::{atmosphere, camera, input, profile, scene, time},
-    menu,
-    messages::{
-        AtmosphereRebakeMessage, ExitMessage, KeyInputMessage, MouseInputMessage,
-        MouseMotionMessage, init_message_type, update_message_type,
+use crate::{
+    app::{
+        data::{atmosphere, camera, input, profile, scene, time},
+        menu,
+        messages::{
+            AtmosphereRebakeMessage, ExitMessage, KeyInputMessage, MouseInputMessage,
+            MouseMotionMessage, init_message_type, update_message_type,
+        },
+        pass::{background, bake, display, geometry, post},
     },
-    pass::{background, bake, display, geometry, post},
+    util,
 };
 
 #[derive(ScheduleLabel, Eq, PartialEq, Copy, Clone, Hash, Debug)]
@@ -94,7 +97,7 @@ impl Default for Schedules {
         // event-driven schedules
         let mut on_resize = Schedule::new(OnResizeSchedule);
 
-        if std::env::var("SINGLE_THREADED").is_ok_and(|v| v == "1") {
+        if util::get_runtime_flag("SINGLE_THREADED") {
             log::info!("using single threaded system execution due to environment variable");
 
             on_init_message_setup.set_executor_kind(ExecutorKind::SingleThreaded);

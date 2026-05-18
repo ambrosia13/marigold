@@ -52,7 +52,7 @@ where
 
         drop(view);
         buffer.unmap();
-        log::info!("buffer {} explicitly unmapped", label);
+        // log::info!("buffer {} explicitly unmapped", label);
 
         Self {
             gpu: gpu.clone(),
