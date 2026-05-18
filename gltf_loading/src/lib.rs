@@ -1,11 +1,11 @@
+#![feature(iter_array_chunks)]
+
 use std::{collections::HashMap, ffi::OsStr, path::Path};
 
 use bvh::BoundingVolume;
 use glam::{Mat4, Vec3};
 use gltf::{Gltf, mesh::Mode};
 use mesh_interface::{MeshInstance, MeshTriangle, MeshVertex, UnserializedMesh};
-
-use crate::util;
 
 struct GltfMeshInstance {
     pub transform: Mat4,
@@ -43,7 +43,7 @@ impl GltfScene {
     }
 
     pub fn load<P: AsRef<Path>>(path: P) -> Self {
-        let path = util::get_asset_path(path);
+        let path = path.as_ref(); // let the caller (marigold crate) handle asset path conversion
         let error_string = format!("gltf path {} wasn't valid", path.to_string_lossy());
 
         // path represents the directory the .gltf and all associated assets are kept, so find the gltf file

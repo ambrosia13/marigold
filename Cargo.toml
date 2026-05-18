@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["bvh", "bvh_sample_collector", "marigold", "mesh_interface"]
+members = ["bvh", "bvh_sample_collector", "gltf_loading", "marigold", "mesh_interface"]
 
 # since these components are performance critical and math heavy,
 # depend on them in release mode

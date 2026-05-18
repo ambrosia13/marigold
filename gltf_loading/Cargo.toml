@@ -1,0 +1,16 @@
+[package]
+name = "gltf_loading"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+# game engine stuff
+glam = "0.30.9"
+gltf = "1.4.1"
+
+# logging
+log = "0.4.29"
+
+# workspace dependencies
+bvh = { path = "../bvh" }
+mesh_interface = { path = "../mesh_interface" }

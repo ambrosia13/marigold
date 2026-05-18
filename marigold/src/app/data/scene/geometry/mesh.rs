@@ -5,13 +5,14 @@ use bevy_ecs::{
     system::{Commands, ResMut},
 };
 use bvh::{BoundingVolumeHierarchy, BvhSettings};
+use gltf_loading::GltfScene;
 use mesh_interface::{MeshMetadata, MeshRecord};
 use rayon::iter::{IndexedParallelIterator, IntoParallelRefMutIterator, ParallelIterator};
 
 use crate::{
     app::data::scene::{
         BLAS_MAX_DEPTH,
-        geometry::{BlasNodes, MeshTriangles, MeshVertices, Meshes, gltf::GltfScene},
+        geometry::{BlasNodes, MeshTriangles, MeshVertices, Meshes},
     },
     util,
 };
@@ -42,7 +43,10 @@ pub fn load_all_mesh_assets(
         let entry = entry.unwrap();
         let mesh_name = entry.file_name();
 
-        let gltf_scene = GltfScene::load(Path::new("meshes").join(&mesh_name));
+        let path = Path::new("meshes").join(&mesh_name);
+        let path = util::get_asset_path(path);
+
+        let gltf_scene = GltfScene::load(path);
         let (mut unserialized_meshes, instances) = gltf_scene.into_meshes_and_instances();
 
         let mesh_name = mesh_name.to_string_lossy();

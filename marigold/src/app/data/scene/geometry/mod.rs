@@ -13,7 +13,7 @@ use crate::{
     util::{self, buffer::GpuVec},
 };
 
-pub mod gltf;
+// pub mod gltf;
 pub mod mesh;
 
 // the below need to be their own resource structs for change detection
