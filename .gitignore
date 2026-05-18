@@ -3,4 +3,4 @@ renderdoc
 .cargo
 out
 *.tar.gz
-bvh_snapshots
+# bvh_snapshots
