@@ -21,6 +21,7 @@ To use this functionality in marigold, use the environment variable `PROFILING_I
 ```
 PROFILING_INFO=1 cargo run -p marigold
 ```
+Note that collecting profiling information incurs a little extra cost for measuring all the statistics. If this environment variable is set to 0, or not used, this expensive information is not collected, minimal logging is done, and nothing is written to disk. 
 
 For more streamlined, heavyweight data collection, use the crate `bvh_sample_collector`. It takes some command line arguments:
 
