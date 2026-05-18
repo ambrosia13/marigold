@@ -229,7 +229,7 @@ impl BvhNode {
         source: &[S],
     ) -> Option<(BoundingVolume, BoundingVolume, f32, usize, f32)> {
         // compute the results for all 3 axes in parallel, and then choose the best at the end
-        let results_per_axis: Vec<_> = (0..3)
+        (0..3)
             .into_par_iter()
             .filter_map(|axis| {
                 // if there are fewer objects in the volume, take a more accurate search
@@ -259,7 +259,7 @@ impl BvhNode {
 
                 // Vec<(cost, threshold)>
                 // compute all the results in parallel and then choose the best one at the end
-                let results: Vec<(BoundingVolume, BoundingVolume, f32, f32)> = (0..step_count)
+                (0..step_count)
                     .into_par_iter()
                     .filter_map(|i| {
                         let threshold = bounds_min + bounds_step * (i as f32 + 0.5);
@@ -269,63 +269,66 @@ impl BvhNode {
                             (bounds_lt, bounds_gt, cost, threshold)
                         })
                     })
-                    .collect();
+                    .min_by(|(_, _, cost_a, _), (_, _, cost_b, _)| cost_a.total_cmp(cost_b))
+                    .map(|(bounds_lt, bounds_gt, cost, threshold)| {
+                        (bounds_lt, bounds_gt, cost, axis, threshold)
+                    })
 
-                if results.is_empty() {
-                    return None;
-                }
+                // if results.is_empty() {
+                //     return None;
+                // }
 
-                let mut best_bounds_lt = BoundingVolume::EMPTY;
-                let mut best_bounds_gt = BoundingVolume::EMPTY;
-                let mut best_cost = f32::INFINITY;
-                let mut best_threshold = 0.0;
+                // let mut best_bounds_lt = BoundingVolume::EMPTY;
+                // let mut best_bounds_gt = BoundingVolume::EMPTY;
+                // let mut best_cost = f32::INFINITY;
+                // let mut best_threshold = 0.0;
 
-                for (bounds_lt, bounds_gt, cost, threshold) in results {
-                    if cost < best_cost {
-                        best_bounds_lt = bounds_lt;
-                        best_bounds_gt = bounds_gt;
-                        best_cost = cost;
-                        best_threshold = threshold;
-                    }
-                }
+                // for (bounds_lt, bounds_gt, cost, threshold) in results {
+                //     if cost < best_cost {
+                //         best_bounds_lt = bounds_lt;
+                //         best_bounds_gt = bounds_gt;
+                //         best_cost = cost;
+                //         best_threshold = threshold;
+                //     }
+                // }
 
-                Some((
-                    best_bounds_lt,
-                    best_bounds_gt,
-                    best_cost,
-                    axis,
-                    best_threshold,
-                ))
+                // Some((
+                //     best_bounds_lt,
+                //     best_bounds_gt,
+                //     best_cost,
+                //     axis,
+                //     best_threshold,
+                // ))
             })
-            .collect();
+            .min_by(|(_, _, cost_a, _, _), (_, _, cost_b, _, _)| cost_a.total_cmp(cost_b))
 
-        if results_per_axis.is_empty() {
-            return None;
-        }
+        // if results_per_axis.is_empty() {
+        //     return None;
+        // }
 
-        let mut best_bounds_lt = BoundingVolume::EMPTY;
-        let mut best_bounds_gt = BoundingVolume::EMPTY;
-        let mut best_cost = f32::INFINITY;
-        let mut best_axis = 0;
-        let mut best_threshold = 0.0;
+        // let mut best_bounds_lt = BoundingVolume::EMPTY;
+        // let mut best_bounds_gt = BoundingVolume::EMPTY;
+        // let mut best_cost = f32::INFINITY;
+        // let mut best_axis = 0;
+        // let mut best_threshold = 0.0;
 
-        for (bounds_lt, bounds_gt, cost, axis, threshold) in results_per_axis {
-            if cost < best_cost {
-                best_bounds_lt = bounds_lt;
-                best_bounds_gt = bounds_gt;
-                best_cost = cost;
-                best_axis = axis;
-                best_threshold = threshold;
-            }
-        }
+        // for (bounds_lt, bounds_gt, cost, axis, threshold) in results_per_axis {
+        //     if cost < best_cost {
+        //         best_bounds_lt = bounds_lt;
+        //         best_bounds_gt = bounds_gt;
+        //         best_cost = cost;
+        //         best_axis = axis;
+        //         best_threshold = threshold;
+        //     }
+        // }
 
-        Some((
-            best_bounds_lt,
-            best_bounds_gt,
-            best_cost,
-            best_axis,
-            best_threshold,
-        ))
+        // Some((
+        //     best_bounds_lt,
+        //     best_bounds_gt,
+        //     best_cost,
+        //     best_axis,
+        //     best_threshold,
+        // ))
     }
 
     pub fn split<S: Sync, T: AsBoundingVolumeIndices<S> + Clone + Sync>(
@@ -373,43 +376,43 @@ impl BvhNode {
         child_gt.bounds = bounds_gt;
 
         // std partition without extra bounds loop
-        // let object_span =
-        //     &mut list[self.start_index as usize..(self.start_index + self.len) as usize];
+        let object_span =
+            &mut list[self.start_index as usize..(self.start_index + self.len) as usize];
 
-        // let split = object_span
-        //     .iter_mut()
-        //     .partition_in_place(|object| object.center(source)[split_axis] <= split_threshold);
+        let split = object_span
+            .iter_mut()
+            .partition_in_place(|object| object.center(source)[split_axis] <= split_threshold);
 
-        // let (lt, gt) = object_span.split_at_mut(split);
+        let (lt, gt) = object_span.split_at_mut(split);
 
-        // child_lt.len = lt.len() as u32;
-        // child_gt.len = gt.len() as u32;
+        child_lt.len = lt.len() as u32;
+        child_gt.len = gt.len() as u32;
 
-        // child_gt.start_index = self.start_index + child_lt.len;
+        child_gt.start_index = self.start_index + child_lt.len;
 
         // manual partition
-        let greater = |object: &T| object.center(source)[split_axis] > split_threshold;
+        // let greater = |object: &T| object.center(source)[split_axis] > split_threshold;
 
-        for global_index in self.start_index..(self.start_index + self.len) {
-            let global_index = global_index as usize;
-            let object = &list[global_index];
+        // for global_index in self.start_index..(self.start_index + self.len) {
+        //     let global_index = global_index as usize;
+        //     let object = &list[global_index];
 
-            if greater(object) {
-                // child_gt
-                //     .bounds
-                //     .grow_from_bounding_volume(object.bounding_volume(source));
-                child_gt.len += 1;
+        //     if greater(object) {
+        //         // child_gt
+        //         //     .bounds
+        //         //     .grow_from_bounding_volume(object.bounding_volume(source));
+        //         child_gt.len += 1;
 
-                let swap_index = (child_gt.start_index + child_gt.len) as usize - 1;
-                list.swap(swap_index, global_index);
-                child_lt.start_index += 1;
-            } else {
-                // child_lt
-                //     .bounds
-                //     .grow_from_bounding_volume(object.bounding_volume(source));
-                child_lt.len += 1;
-            }
-        }
+        //         let swap_index = (child_gt.start_index + child_gt.len) as usize - 1;
+        //         list.swap(swap_index, global_index);
+        //         child_lt.start_index += 1;
+        //     } else {
+        //         // child_lt
+        //         //     .bounds
+        //         //     .grow_from_bounding_volume(object.bounding_volume(source));
+        //         child_lt.len += 1;
+        //     }
+        // }
 
         if child_gt.len > 0 && child_lt.len > 0 {
             self.child_node = nodes.len() as u32;
