@@ -1,0 +1,10 @@
+[package]
+name = "bvh_sample_collector"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+
+
+# workspace dependencies
+bvh = { path = "../bvh" }

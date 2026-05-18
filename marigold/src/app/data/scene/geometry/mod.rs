@@ -6,15 +6,10 @@ use bevy_ecs::{
 use bvh::{BoundingVolumeHierarchy, BvhNode, BvhSettings};
 use derived_deref::{Deref, DerefMut};
 use glam::Vec3A;
+use mesh_interface::{MeshMetadata, MeshTriangle, MeshVertex, UnserializedMesh};
 
 use crate::{
-    app::{
-        data::scene::{
-            TLAS_MAX_DEPTH,
-            geometry::mesh::{MeshMetadata, MeshTriangle, MeshVertex, UnserializedMesh},
-        },
-        render::SurfaceState,
-    },
+    app::{data::scene::TLAS_MAX_DEPTH, render::SurfaceState},
     util::{self, buffer::GpuVec},
 };
 

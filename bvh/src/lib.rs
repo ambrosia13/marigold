@@ -189,39 +189,39 @@ impl BvhNode {
         axis: usize,
         threshold: f32,
     ) -> Option<(BoundingVolume, BoundingVolume, f32)> {
-        let mut bounds_a = BoundingVolume::EMPTY;
-        let mut bounds_b = BoundingVolume::EMPTY;
+        let mut bounds_lt = BoundingVolume::EMPTY;
+        let mut bounds_gt = BoundingVolume::EMPTY;
 
-        let mut a_count = 0;
-        let mut b_count = 0;
+        let mut lt_count = 0;
+        let mut gt_count = 0;
 
         for obj in list {
             let obj_center = obj.center(source);
 
-            if obj_center[axis] < threshold {
-                bounds_a.grow_from_bounding_volume(obj.bounding_volume(source));
-                a_count += 1;
+            if obj_center[axis] <= threshold {
+                bounds_lt.grow_from_bounding_volume(obj.bounding_volume(source));
+                lt_count += 1;
             } else {
-                bounds_b.grow_from_bounding_volume(obj.bounding_volume(source));
-                b_count += 1;
+                bounds_gt.grow_from_bounding_volume(obj.bounding_volume(source));
+                gt_count += 1;
             }
         }
 
         // refuse empty nodes or nodes with not enough objects
-        if a_count < Self::MIN_OBJECTS_PER_NODE || b_count < Self::MIN_OBJECTS_PER_NODE {
+        if lt_count < Self::MIN_OBJECTS_PER_NODE || gt_count < Self::MIN_OBJECTS_PER_NODE {
             //log::info!("Invalid split, axis: {}, threshold: {}")
             return None;
         }
 
-        let a_cost =
-            bounds_a.surface_area() / bounds.surface_area() * Self::OBJECT_COST * a_count as f32;
-        let b_cost =
-            bounds_b.surface_area() / bounds.surface_area() * Self::OBJECT_COST * b_count as f32;
+        let lt_cost =
+            bounds_lt.surface_area() / bounds.surface_area() * Self::OBJECT_COST * lt_count as f32;
+        let gt_cost =
+            bounds_gt.surface_area() / bounds.surface_area() * Self::OBJECT_COST * gt_count as f32;
 
-        Some((bounds_a, bounds_b, Self::DEPTH_COST + a_cost + b_cost))
+        Some((bounds_lt, bounds_gt, Self::DEPTH_COST + lt_cost + gt_cost))
     }
 
-    // returns (cost, axis, threshold)
+    // returns (bounds_lt, bounds_gt, cost, axis, threshold)
     fn choose_split_axis<S: Sync, T: AsBoundingVolumeIndices<S> + Clone + Sync>(
         bounds: BoundingVolume,
         list: &[T],
@@ -264,7 +264,9 @@ impl BvhNode {
                         let threshold = bounds_min + bounds_step * (i as f32 + 0.5);
                         let cost = Self::evaluate_split_cost(bounds, list, source, axis, threshold);
 
-                        cost.map(|(bounds_a, bounds_b, cost)| (bounds_a, bounds_b, cost, threshold))
+                        cost.map(|(bounds_lt, bounds_gt, cost)| {
+                            (bounds_lt, bounds_gt, cost, threshold)
+                        })
                     })
                     .collect();
 
@@ -272,23 +274,23 @@ impl BvhNode {
                     return None;
                 }
 
-                let mut best_bounds_a = BoundingVolume::EMPTY;
-                let mut best_bounds_b = BoundingVolume::EMPTY;
+                let mut best_bounds_lt = BoundingVolume::EMPTY;
+                let mut best_bounds_gt = BoundingVolume::EMPTY;
                 let mut best_cost = f32::INFINITY;
                 let mut best_threshold = 0.0;
 
-                for (bounds_a, bounds_b, cost, threshold) in results {
+                for (bounds_lt, bounds_gt, cost, threshold) in results {
                     if cost < best_cost {
-                        best_bounds_a = bounds_a;
-                        best_bounds_b = bounds_b;
+                        best_bounds_lt = bounds_lt;
+                        best_bounds_gt = bounds_gt;
                         best_cost = cost;
                         best_threshold = threshold;
                     }
                 }
 
                 Some((
-                    best_bounds_a,
-                    best_bounds_b,
+                    best_bounds_lt,
+                    best_bounds_gt,
                     best_cost,
                     axis,
                     best_threshold,
@@ -300,16 +302,16 @@ impl BvhNode {
             return None;
         }
 
-        let mut best_bounds_a = BoundingVolume::EMPTY;
-        let mut best_bounds_b = BoundingVolume::EMPTY;
+        let mut best_bounds_lt = BoundingVolume::EMPTY;
+        let mut best_bounds_gt = BoundingVolume::EMPTY;
         let mut best_cost = f32::INFINITY;
         let mut best_axis = 0;
         let mut best_threshold = 0.0;
 
-        for (bounds_a, bounds_b, cost, axis, threshold) in results_per_axis {
+        for (bounds_lt, bounds_gt, cost, axis, threshold) in results_per_axis {
             if cost < best_cost {
-                best_bounds_a = bounds_a;
-                best_bounds_b = bounds_b;
+                best_bounds_lt = bounds_lt;
+                best_bounds_gt = bounds_gt;
                 best_cost = cost;
                 best_axis = axis;
                 best_threshold = threshold;
@@ -317,8 +319,8 @@ impl BvhNode {
         }
 
         Some((
-            best_bounds_a,
-            best_bounds_b,
+            best_bounds_lt,
+            best_bounds_gt,
             best_cost,
             best_axis,
             best_threshold,
@@ -354,7 +356,7 @@ impl BvhNode {
             child_node: 0,
         };
 
-        let Some((bounds_a, bounds_b, cost, split_axis, split_threshold)) =
+        let Some((bounds_lt, bounds_gt, cost, split_axis, split_threshold)) =
             Self::choose_split_axis(self.bounds, self.slice(list), source)
         else {
             // log::info!("Refused a split for a node with object count {}", self.len);
@@ -366,47 +368,47 @@ impl BvhNode {
             return;
         }
 
-        child_lt.bounds = bounds_a;
-        child_gt.bounds = bounds_b;
+        child_lt.bounds = bounds_lt;
+        child_gt.bounds = bounds_gt;
 
         // std partition without extra bounds loop
-        // let object_span =
-        //     &mut list[self.start_index as usize..(self.start_index + self.len) as usize];
+        let object_span =
+            &mut list[self.start_index as usize..(self.start_index + self.len) as usize];
 
-        // let split = object_span
-        //     .iter_mut()
-        //     .partition_in_place(|object| object.center(source)[split_axis] <= split_threshold);
+        let split = object_span
+            .iter_mut()
+            .partition_in_place(|object| object.center(source)[split_axis] <= split_threshold);
 
-        // let (lt, gt) = object_span.split_at_mut(split);
+        let (lt, gt) = object_span.split_at_mut(split);
 
-        // child_lt.len = lt.len() as u32;
-        // child_gt.len = gt.len() as u32;
+        child_lt.len = lt.len() as u32;
+        child_gt.len = gt.len() as u32;
 
-        // child_gt.start_index = self.start_index + child_lt.len;
+        child_gt.start_index = self.start_index + child_lt.len;
 
         // manual partition
-        let greater = |object: &T| object.center(source)[split_axis] > split_threshold;
+        // let greater = |object: &T| object.center(source)[split_axis] > split_threshold;
 
-        for global_index in self.start_index..(self.start_index + self.len) {
-            let global_index = global_index as usize;
-            let object = &list[global_index];
+        // for global_index in self.start_index..(self.start_index + self.len) {
+        //     let global_index = global_index as usize;
+        //     let object = &list[global_index];
 
-            if greater(object) {
-                // child_gt
-                //     .bounds
-                //     .grow_from_bounding_volume(object.bounding_volume(source));
-                child_gt.len += 1;
+        //     if greater(object) {
+        //         // child_gt
+        //         //     .bounds
+        //         //     .grow_from_bounding_volume(object.bounding_volume(source));
+        //         child_gt.len += 1;
 
-                let swap_index = (child_gt.start_index + child_gt.len) as usize - 1;
-                list.swap(swap_index, global_index);
-                child_lt.start_index += 1;
-            } else {
-                // child_lt
-                //     .bounds
-                //     .grow_from_bounding_volume(object.bounding_volume(source));
-                child_lt.len += 1;
-            }
-        }
+        //         let swap_index = (child_gt.start_index + child_gt.len) as usize - 1;
+        //         list.swap(swap_index, global_index);
+        //         child_lt.start_index += 1;
+        //     } else {
+        //         // child_lt
+        //         //     .bounds
+        //         //     .grow_from_bounding_volume(object.bounding_volume(source));
+        //         child_lt.len += 1;
+        //     }
+        // }
 
         if child_gt.len > 0 && child_lt.len > 0 {
             self.child_node = nodes.len() as u32;
@@ -568,11 +570,12 @@ impl BoundingVolumeHierarchy {
             if let Some(path) = settings.profiling_info_directory {
                 std::fs::create_dir_all(path).unwrap();
 
-                let json_path = path.join(format!(
-                    "bvh_{}_{}.json",
-                    settings.name,
-                    env!("BVH_BUILD_ID")
-                ));
+                let build_id = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap()
+                    .as_secs();
+
+                let json_path = path.join(format!("bvh_{}_{}.json", settings.name, build_id,));
 
                 if !json_path.exists() {
                     let mut file = File::create(json_path)

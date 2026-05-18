@@ -3,11 +3,9 @@ use std::{collections::HashMap, ffi::OsStr, path::Path};
 use bvh::BoundingVolume;
 use glam::{Mat4, Vec3};
 use gltf::{Gltf, mesh::Mode};
+use mesh_interface::{MeshInstance, MeshTriangle, MeshVertex, UnserializedMesh};
 
-use crate::{
-    app::data::scene::geometry::mesh::{MeshInstance, MeshTriangle, MeshVertex, UnserializedMesh},
-    util,
-};
+use crate::util;
 
 struct GltfMeshInstance {
     pub transform: Mat4,

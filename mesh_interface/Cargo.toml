@@ -1,0 +1,17 @@
+[package]
+name = "mesh_interface"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+# game engine stuff
+glam = "0.30.9"
+
+# general utility
+derived-deref = "2.1.0"
+
+# data manipulation
+gpu_layout = "0.2.2"
+
+# workspace dependencies
+bvh = { path = "../bvh" }
