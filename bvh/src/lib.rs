@@ -1,3 +1,5 @@
+#![feature(iter_partition_in_place)]
+
 use std::{
     fs::File,
     io::Write,
@@ -186,7 +188,7 @@ impl BvhNode {
         source: &[S],
         axis: usize,
         threshold: f32,
-    ) -> Option<f32> {
+    ) -> Option<(BoundingVolume, BoundingVolume, f32)> {
         let mut bounds_a = BoundingVolume::EMPTY;
         let mut bounds_b = BoundingVolume::EMPTY;
 
@@ -216,7 +218,7 @@ impl BvhNode {
         let b_cost =
             bounds_b.surface_area() / bounds.surface_area() * Self::OBJECT_COST * b_count as f32;
 
-        Some(Self::DEPTH_COST + a_cost + b_cost)
+        Some((bounds_a, bounds_b, Self::DEPTH_COST + a_cost + b_cost))
     }
 
     // returns (cost, axis, threshold)
@@ -224,7 +226,7 @@ impl BvhNode {
         bounds: BoundingVolume,
         list: &[T],
         source: &[S],
-    ) -> Option<(f32, usize, f32)> {
+    ) -> Option<(BoundingVolume, BoundingVolume, f32, usize, f32)> {
         // compute the results for all 3 axes in parallel, and then choose the best at the end
         let results_per_axis: Vec<_> = (0..3)
             .into_par_iter()
@@ -256,13 +258,13 @@ impl BvhNode {
 
                 // Vec<(cost, threshold)>
                 // compute all the results in parallel and then choose the best one at the end
-                let results: Vec<(f32, f32)> = (0..step_count)
+                let results: Vec<(BoundingVolume, BoundingVolume, f32, f32)> = (0..step_count)
                     .into_par_iter()
                     .filter_map(|i| {
                         let threshold = bounds_min + bounds_step * (i as f32 + 0.5);
                         let cost = Self::evaluate_split_cost(bounds, list, source, axis, threshold);
 
-                        cost.map(|cost| (cost, threshold))
+                        cost.map(|(bounds_a, bounds_b, cost)| (bounds_a, bounds_b, cost, threshold))
                     })
                     .collect();
 
@@ -270,17 +272,27 @@ impl BvhNode {
                     return None;
                 }
 
+                let mut best_bounds_a = BoundingVolume::EMPTY;
+                let mut best_bounds_b = BoundingVolume::EMPTY;
                 let mut best_cost = f32::INFINITY;
                 let mut best_threshold = 0.0;
 
-                for (cost, threshold) in results {
+                for (bounds_a, bounds_b, cost, threshold) in results {
                     if cost < best_cost {
+                        best_bounds_a = bounds_a;
+                        best_bounds_b = bounds_b;
                         best_cost = cost;
                         best_threshold = threshold;
                     }
                 }
 
-                Some((best_cost, axis, best_threshold))
+                Some((
+                    best_bounds_a,
+                    best_bounds_b,
+                    best_cost,
+                    axis,
+                    best_threshold,
+                ))
             })
             .collect();
 
@@ -288,19 +300,29 @@ impl BvhNode {
             return None;
         }
 
+        let mut best_bounds_a = BoundingVolume::EMPTY;
+        let mut best_bounds_b = BoundingVolume::EMPTY;
         let mut best_cost = f32::INFINITY;
         let mut best_axis = 0;
         let mut best_threshold = 0.0;
 
-        for (cost, axis, threshold) in results_per_axis {
+        for (bounds_a, bounds_b, cost, axis, threshold) in results_per_axis {
             if cost < best_cost {
+                best_bounds_a = bounds_a;
+                best_bounds_b = bounds_b;
                 best_cost = cost;
                 best_axis = axis;
                 best_threshold = threshold;
             }
         }
 
-        Some((best_cost, best_axis, best_threshold))
+        Some((
+            best_bounds_a,
+            best_bounds_b,
+            best_cost,
+            best_axis,
+            best_threshold,
+        ))
     }
 
     pub fn split<S: Sync, T: AsBoundingVolumeIndices<S> + Clone + Sync>(
@@ -332,7 +354,7 @@ impl BvhNode {
             child_node: 0,
         };
 
-        let Some((cost, split_axis, split_threshold)) =
+        let Some((bounds_a, bounds_b, cost, split_axis, split_threshold)) =
             Self::choose_split_axis(self.bounds, self.slice(list), source)
         else {
             // log::info!("Refused a split for a node with object count {}", self.len);
@@ -344,6 +366,25 @@ impl BvhNode {
             return;
         }
 
+        child_lt.bounds = bounds_a;
+        child_gt.bounds = bounds_b;
+
+        // std partition without extra bounds loop
+        // let object_span =
+        //     &mut list[self.start_index as usize..(self.start_index + self.len) as usize];
+
+        // let split = object_span
+        //     .iter_mut()
+        //     .partition_in_place(|object| object.center(source)[split_axis] <= split_threshold);
+
+        // let (lt, gt) = object_span.split_at_mut(split);
+
+        // child_lt.len = lt.len() as u32;
+        // child_gt.len = gt.len() as u32;
+
+        // child_gt.start_index = self.start_index + child_lt.len;
+
+        // manual partition
         let greater = |object: &T| object.center(source)[split_axis] > split_threshold;
 
         for global_index in self.start_index..(self.start_index + self.len) {
@@ -351,18 +392,18 @@ impl BvhNode {
             let object = &list[global_index];
 
             if greater(object) {
-                child_gt
-                    .bounds
-                    .grow_from_bounding_volume(object.bounding_volume(source));
+                // child_gt
+                //     .bounds
+                //     .grow_from_bounding_volume(object.bounding_volume(source));
                 child_gt.len += 1;
 
                 let swap_index = (child_gt.start_index + child_gt.len) as usize - 1;
                 list.swap(swap_index, global_index);
                 child_lt.start_index += 1;
             } else {
-                child_lt
-                    .bounds
-                    .grow_from_bounding_volume(object.bounding_volume(source));
+                // child_lt
+                //     .bounds
+                //     .grow_from_bounding_volume(object.bounding_volume(source));
                 child_lt.len += 1;
             }
         }
