@@ -350,6 +350,7 @@ impl BvhNode {
             .min_by(|split_a, split_b| split_a.cost.total_cmp(&split_b.cost))
     }
 
+    #[allow(unused)]
     fn adaptive_sweep<S: Sync, T: AsBoundingVolumeIndices<S> + Sync>(
         parent_bounds: BoundingVolume,
         centroid_bounds: BoundingVolume,
@@ -499,26 +500,15 @@ impl BvhNode {
         let mut split = (0..3)
             .into_par_iter()
             .filter_map(|axis| {
-                // for small sizes, choose adaptive sweep; for large sizes, choose binned sweep
-                if list.len() <= 16 {
-                    Self::adaptive_sweep(
-                        parent_bounds,
-                        centroid_bounds,
-                        list,
-                        source,
-                        axis,
-                        min_objects_per_leaf,
-                    )
-                } else {
-                    Self::binned_sweep(
-                        parent_bounds,
-                        centroid_bounds,
-                        list,
-                        source,
-                        axis,
-                        min_objects_per_leaf,
-                    )
-                }
+                // choose binned sweep every time, compromises quality but insanely fast speed
+                Self::binned_sweep(
+                    parent_bounds,
+                    centroid_bounds,
+                    list,
+                    source,
+                    axis,
+                    min_objects_per_leaf,
+                )
             })
             .min_by(|split_a, split_b| split_a.cost.total_cmp(&split_b.cost));
 
