@@ -673,6 +673,9 @@ impl BoundingVolumeHierarchy {
         settings: BvhSettings<'_>,
     ) -> Self {
         if list.is_empty() {
+            log::warn!(
+                "tried constructing a BVH with an empty object list, returning an empty BVH"
+            );
             return Self { nodes: Vec::new() };
         }
 
@@ -685,7 +688,7 @@ impl BoundingVolumeHierarchy {
         if !feasible {
             log::warn!(
                 "BVH may be impossible to construct with the given constraints; \
-                min objects per leaf {} and max objects per leaf {} is likely an impossible condition with total objects {}. \
+                min leaf objects {} and max leaf objects {} is likely impossible with total objects {}. \
                 BVH construction will follow the max objects per leaf rule, \
                 but may not follow the min objects per leaf rule.",
                 settings.min_objects_per_leaf,
@@ -825,13 +828,16 @@ Construction time: {} seconds
             }
         } else {
             // simple debug info
-            log::info!("BVH took {} seconds to build", construction_time);
+            log::info!(
+                "BVH for {} took {} seconds to build",
+                settings.name,
+                construction_time
+            );
         }
 
         Self { nodes }
     }
 
-    #[allow(unused)]
     pub fn nodes(&self) -> &[BvhNode] {
         &self.nodes
     }
