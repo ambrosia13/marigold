@@ -525,7 +525,7 @@ impl BvhNode {
             .iter_mut()
             .partition_in_place(|object| object.center(source)[split.axis] < split.threshold);
 
-        let (lt, gt) = object_span.split_at_mut(split);
+        let (lt, gt) = object_span.split_at(split);
 
         child_lt.len = lt.len() as u32;
         child_gt.len = gt.len() as u32;
