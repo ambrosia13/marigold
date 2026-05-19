@@ -3,6 +3,7 @@
 use std::{
     fs::File,
     io::Write,
+    ops::Deref,
     path::Path,
     sync::{Arc, atomic::AtomicU32},
 };
@@ -121,13 +122,17 @@ struct CandidateSplit {
 }
 
 struct SuccessfulSplit {
-    bounds_lt: BoundingVolume,
-    bounds_gt: BoundingVolume,
-    lt_count: u32,
-    gt_count: u32,
-    cost: f32,
+    candidate: CandidateSplit,
     axis: usize,
     threshold: f32,
+}
+
+impl Deref for SuccessfulSplit {
+    type Target = CandidateSplit;
+
+    fn deref(&self) -> &Self::Target {
+        &self.candidate
+    }
 }
 
 #[derive(Clone)]
@@ -342,11 +347,7 @@ impl BvhNode {
                 }
 
                 Some(SuccessfulSplit {
-                    bounds_lt: split.bounds_lt,
-                    bounds_gt: split.bounds_gt,
-                    lt_count: split.lt_count,
-                    gt_count: split.gt_count,
-                    cost: split.cost,
+                    candidate: split,
                     axis,
                     threshold,
                 })
@@ -385,11 +386,7 @@ impl BvhNode {
                     }
 
                     Some(SuccessfulSplit {
-                        bounds_lt: split.bounds_lt,
-                        bounds_gt: split.bounds_gt,
-                        lt_count: split.lt_count,
-                        gt_count: split.gt_count,
-                        cost: split.cost,
+                        candidate: split,
                         axis,
                         threshold,
                     })
@@ -421,11 +418,7 @@ impl BvhNode {
                     }
 
                     Some(SuccessfulSplit {
-                        bounds_lt: split.bounds_lt,
-                        bounds_gt: split.bounds_gt,
-                        lt_count: split.lt_count,
-                        gt_count: split.gt_count,
-                        cost: split.cost,
+                        candidate: split,
                         axis,
                         threshold,
                     })
@@ -468,12 +461,16 @@ impl BvhNode {
             * Self::OBJECT_COST
             * (1 + gt.len()) as f32;
 
-        SuccessfulSplit {
+        let split = CandidateSplit {
             bounds_lt,
             bounds_gt,
             lt_count: lt.len() as u32,
             gt_count: 1 + gt.len() as u32,
             cost: Self::DEPTH_COST + lt_cost + gt_cost,
+        };
+
+        SuccessfulSplit {
+            candidate: split,
             axis,
             threshold,
         }
