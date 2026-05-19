@@ -10,7 +10,7 @@ use std::{
 use glam::Vec3A;
 use gpu_layout::{AsGpuBytes, GpuBytes};
 use rand::Rng;
-use rayon::iter::{IntoParallelIterator, ParallelIterator};
+use rayon::iter::{IntoParallelIterator, IntoParallelRefIterator, ParallelIterator};
 use serde::Serialize;
 
 pub trait AsBoundingVolume {
@@ -112,6 +112,24 @@ impl BoundingVolume {
     }
 }
 
+struct PotentialSplit {
+    bounds_lt: BoundingVolume,
+    bounds_gt: BoundingVolume,
+    lt_count: u32,
+    gt_count: u32,
+    cost: f32,
+}
+
+struct SelectedSplit {
+    bounds_lt: BoundingVolume,
+    bounds_gt: BoundingVolume,
+    lt_count: u32,
+    gt_count: u32,
+    cost: f32,
+    axis: usize,
+    threshold: f32,
+}
+
 #[derive(Default, Clone, Copy, Debug)]
 pub struct BvhNode {
     pub bounds: BoundingVolume,
@@ -145,7 +163,7 @@ impl BvhNode {
     pub const DEPTH_COST: f32 = 1.0;
     pub const OBJECT_COST: f32 = 8.0;
     pub const MIN_OBJECTS_PER_NODE: u32 = 1;
-    pub const MAX_OBJECTS_PER_NODE: u32 = 1;
+    pub const MAX_OBJECTS_PER_NODE: u32 = 128;
 
     pub fn root<S, T: AsBoundingVolumeIndices<S>>(list: &mut [T], source: &[S]) -> Self {
         let mut bounds = BoundingVolume::new(Vec3A::ZERO, Vec3A::ZERO);
@@ -183,35 +201,78 @@ impl BvhNode {
         // Self::NODE_COST + Self::OBJECT_COST * self.bounds.surface_area() * self.len as f32
     }
 
-    fn evaluate_split_cost<S, T: AsBoundingVolumeIndices<S>>(
+    fn evaluate_binned_split(
         bounds: BoundingVolume,
-        list: &[T],
-        source: &[S],
-        axis: usize,
-        threshold: f32,
-    ) -> Option<(BoundingVolume, BoundingVolume, f32)> {
+        bins: &[(usize, BoundingVolume)],
+        bin_split: usize,
+    ) -> PotentialSplit {
         let mut bounds_lt = BoundingVolume::EMPTY;
         let mut bounds_gt = BoundingVolume::EMPTY;
 
         let mut lt_count = 0;
         let mut gt_count = 0;
 
-        for obj in list {
-            let obj_center = obj.center(source);
+        let (bins_lt, bins_gt) = bins.split_at(bin_split);
 
-            if obj_center[axis] <= threshold {
-                bounds_lt.grow_from_bounding_volume(obj.bounding_volume(source));
-                lt_count += 1;
-            } else {
-                bounds_gt.grow_from_bounding_volume(obj.bounding_volume(source));
-                gt_count += 1;
-            }
+        for (count, bounds) in bins_lt {
+            lt_count += *count as u32;
+            bounds_lt.grow_from_bounding_volume(*bounds);
         }
 
-        // refuse empty nodes or nodes with not enough objects
-        if lt_count < Self::MIN_OBJECTS_PER_NODE || gt_count < Self::MIN_OBJECTS_PER_NODE {
-            //log::info!("Invalid split, axis: {}, threshold: {}")
-            return None;
+        for (count, bounds) in bins_gt {
+            gt_count += *count as u32;
+            bounds_gt.grow_from_bounding_volume(*bounds);
+        }
+
+        // for obj in list {
+        //     let obj_center = obj.center(source);
+
+        //     if obj_center[axis] < threshold {
+        //         bounds_lt.grow_from_bounding_volume(obj.bounding_volume(source));
+        //         lt_count += 1;
+        //     } else {
+        //         bounds_gt.grow_from_bounding_volume(obj.bounding_volume(source));
+        //         gt_count += 1;
+        //     }
+        // }
+
+        let lt_cost =
+            bounds_lt.surface_area() / bounds.surface_area() * Self::OBJECT_COST * lt_count as f32;
+        let gt_cost =
+            bounds_gt.surface_area() / bounds.surface_area() * Self::OBJECT_COST * gt_count as f32;
+
+        PotentialSplit {
+            bounds_lt,
+            bounds_gt,
+            lt_count,
+            gt_count,
+            cost: Self::DEPTH_COST + lt_cost + gt_cost,
+        }
+    }
+
+    fn evaluate_threshold_split<S, T: AsBoundingVolumeIndices<S>>(
+        bounds: BoundingVolume,
+        list: &[T],
+        source: &[S],
+        axis: usize,
+        threshold: f32,
+    ) -> PotentialSplit {
+        let mut lt_count = 0;
+        let mut gt_count = 0;
+
+        let mut bounds_lt = BoundingVolume::EMPTY;
+        let mut bounds_gt = BoundingVolume::EMPTY;
+
+        for object in list {
+            let bounds = object.bounding_volume(source);
+
+            if bounds.center()[axis] < threshold {
+                bounds_lt.grow_from_bounding_volume(bounds);
+                lt_count += 1;
+            } else {
+                bounds_gt.grow_from_bounding_volume(bounds);
+                gt_count += 1;
+            }
         }
 
         let lt_cost =
@@ -219,116 +280,220 @@ impl BvhNode {
         let gt_cost =
             bounds_gt.surface_area() / bounds.surface_area() * Self::OBJECT_COST * gt_count as f32;
 
-        Some((bounds_lt, bounds_gt, Self::DEPTH_COST + lt_cost + gt_cost))
+        PotentialSplit {
+            bounds_lt,
+            bounds_gt,
+            lt_count,
+            gt_count,
+            cost: Self::DEPTH_COST + lt_cost + gt_cost,
+        }
+    }
+
+    fn adaptive_sweep<S: Sync, T: AsBoundingVolumeIndices<S> + Sync>(
+        parent_bounds: BoundingVolume,
+        list: &[T],
+        source: &[S],
+        axis: usize,
+    ) -> Option<SelectedSplit> {
+        if list.len() < 16 {
+            // for small amounts of objects, do the most accurate search
+            // since the dataset is small, do a sequential search rather than parallel search
+            list.iter()
+                .filter_map(|object| {
+                    let bounds = object.bounding_volume(source);
+                    let threshold = bounds.center()[axis];
+
+                    let split = Self::evaluate_threshold_split(
+                        parent_bounds,
+                        list,
+                        source,
+                        axis,
+                        threshold,
+                    );
+
+                    // refuse a split if too few objects are in each child
+                    if split.lt_count < Self::MIN_OBJECTS_PER_NODE
+                        || split.gt_count < Self::MIN_OBJECTS_PER_NODE
+                    {
+                        return None;
+                    }
+
+                    Some(SelectedSplit {
+                        bounds_lt: split.bounds_lt,
+                        bounds_gt: split.bounds_gt,
+                        lt_count: split.lt_count,
+                        gt_count: split.gt_count,
+                        cost: split.cost,
+                        axis,
+                        threshold,
+                    })
+                })
+                .min_by(|split_a, split_b| split_a.cost.total_cmp(&split_b.cost))
+        } else {
+            // do an approximate search
+            let step_count = list.len().clamp(16, 32);
+            let bounds_step = parent_bounds.extent()[axis] / step_count as f32;
+
+            // compute results in parallel, choose best one at the end
+            (0..step_count)
+                .into_par_iter()
+                .filter_map(|i| {
+                    let threshold = parent_bounds.min[axis] + bounds_step * (i as f32 + 0.5);
+                    let split = Self::evaluate_threshold_split(
+                        parent_bounds,
+                        list,
+                        source,
+                        axis,
+                        threshold,
+                    );
+
+                    // refuse a split if too few objects are in each child
+                    if split.lt_count < Self::MIN_OBJECTS_PER_NODE
+                        || split.gt_count < Self::MIN_OBJECTS_PER_NODE
+                    {
+                        return None;
+                    }
+
+                    Some(SelectedSplit {
+                        bounds_lt: split.bounds_lt,
+                        bounds_gt: split.bounds_gt,
+                        lt_count: split.lt_count,
+                        gt_count: split.gt_count,
+                        cost: split.cost,
+                        axis,
+                        threshold,
+                    })
+                })
+                .min_by(|split_a, split_b| split_a.cost.total_cmp(&split_b.cost))
+        }
     }
 
     // returns (bounds_lt, bounds_gt, cost, axis, threshold)
-    fn choose_split_axis<S: Sync, T: AsBoundingVolumeIndices<S> + Clone + Sync>(
+    fn select_split<S: Sync, T: AsBoundingVolumeIndices<S> + Clone + Sync>(
         bounds: BoundingVolume,
         list: &[T],
         source: &[S],
-    ) -> Option<(BoundingVolume, BoundingVolume, f32, usize, f32)> {
-        // compute the results for all 3 axes in parallel, and then choose the best at the end
+    ) -> Option<SelectedSplit> {
+        // compute centroid min and max for use with binning, can be shared across all axes
+        let mut centroid_min = Vec3A::INFINITY;
+        let mut centroid_max = Vec3A::NEG_INFINITY;
+
+        for object in list {
+            let center = object.center(source);
+
+            centroid_min = centroid_min.min(center);
+            centroid_max = centroid_max.max(center);
+        }
+
+        let centroid_extent = centroid_max - centroid_min;
+
+        // compute the results for all 3 axes in parallel, and then choose the best
         (0..3)
             .into_par_iter()
             .filter_map(|axis| {
-                // if there are fewer objects in the volume, take a more accurate search
-                let (bounds_min, bounds_max) = if list.len() < 10 {
-                    let mut min = f32::INFINITY;
-                    let mut max = f32::NEG_INFINITY;
-
-                    // find min and max positions of the objects along this axis
-                    for object in list {
-                        let object_bounds = object.bounding_volume(source);
-
-                        if object_bounds.min[axis] < min {
-                            min = object_bounds.min[axis];
-                        }
-                        if object_bounds.max[axis] > max {
-                            max = object_bounds.max[axis];
-                        }
-                    }
-
-                    (min, max)
-                } else {
-                    (bounds.min[axis], bounds.max[axis])
-                };
-
-                let step_count = list.len().clamp(5, 20);
-                let bounds_step = (bounds_max - bounds_min) / step_count as f32;
-
-                // Vec<(cost, threshold)>
-                // compute all the results in parallel and then choose the best one at the end
-                (0..step_count)
-                    .into_par_iter()
-                    .filter_map(|i| {
-                        let threshold = bounds_min + bounds_step * (i as f32 + 0.5);
-                        let cost = Self::evaluate_split_cost(bounds, list, source, axis, threshold);
-
-                        cost.map(|(bounds_lt, bounds_gt, cost)| {
-                            (bounds_lt, bounds_gt, cost, threshold)
-                        })
-                    })
-                    .min_by(|(_, _, cost_a, _), (_, _, cost_b, _)| cost_a.total_cmp(cost_b))
-                    .map(|(bounds_lt, bounds_gt, cost, threshold)| {
-                        (bounds_lt, bounds_gt, cost, axis, threshold)
-                    })
-
-                // if results.is_empty() {
+                Self::adaptive_sweep(bounds, list, source, axis)
+                // // if the centroid extent is 0 along this axis, refuse split
+                // if centroid_extent[axis] == 0.0 {
                 //     return None;
                 // }
 
-                // let mut best_bounds_lt = BoundingVolume::EMPTY;
-                // let mut best_bounds_gt = BoundingVolume::EMPTY;
-                // let mut best_cost = f32::INFINITY;
-                // let mut best_threshold = 0.0;
+                // let min_object_count_for_binning = 16;
 
-                // for (bounds_lt, bounds_gt, cost, threshold) in results {
-                //     if cost < best_cost {
-                //         best_bounds_lt = bounds_lt;
-                //         best_bounds_gt = bounds_gt;
-                //         best_cost = cost;
-                //         best_threshold = threshold;
+                // if list.len() >= min_object_count_for_binning {
+                //     let bin_count = list.len().clamp(16, 32);
+
+                //     let mut bins: Vec<(usize, BoundingVolume)> =
+                //         vec![(0, BoundingVolume::EMPTY); bin_count];
+
+                //     // populate bins
+                //     for object in list {
+                //         let object_bounds = object.bounding_volume(source);
+                //         let center = object_bounds.center();
+
+                //         let percent_along_bounds =
+                //             (center[axis] - centroid_min[axis]) / centroid_extent[axis];
+                //         let bin_index = (percent_along_bounds * bin_count as f32).floor() as usize;
+                //         let bin_index = bin_index.min(bin_count - 1);
+
+                //         bins[bin_index].0 += 1;
+                //         bins[bin_index].1.grow_from_bounding_volume(object_bounds);
                 //     }
+
+                //     // compute all results in parallel then choose the best one
+                //     // iterate from the second to the second to last bin
+                //     // safe bc we asserted bin_count at least 2
+                //     let mut result = (1..(bin_count))
+                //         .into_par_iter()
+                //         .filter_map(|i| {
+                //             // threshold is needed later for partitioning, so choose the bin boundary
+                //             let threshold = ((i as f32 / bin_count as f32) * centroid_extent
+                //                 + centroid_min)[axis];
+                //             let cost =
+                //                 Self::evaluate_binned_split(bounds, &bins, i, list.len() as u32);
+
+                //             cost.map(|(bounds_lt, bounds_gt, cost)| {
+                //                 (bounds_lt, bounds_gt, cost, threshold)
+                //             })
+                //         })
+                //         .min_by(|(_, _, cost_a, _), (_, _, cost_b, _)| cost_a.total_cmp(cost_b))
+                //         .map(|(bounds_lt, bounds_gt, cost, threshold)| {
+                //             (bounds_lt, bounds_gt, cost, axis, threshold)
+                //         });
+
+                //     // if all binning splits failed, and if the parent node has too many nodes, force a potential split using median
+                //     if result.is_none() && list.len() as u32 > Self::MAX_OBJECTS_PER_NODE {
+                //         result = Some(Self::evaluate_full_sweep_split(bounds, axis, list, source))
+                //     }
+
+                //     result
+                // } else {
+                //     // simple median split
+                //     Some(Self::evaluate_full_sweep_split(bounds, axis, list, source))
                 // }
 
-                // Some((
-                //     best_bounds_lt,
-                //     best_bounds_gt,
-                //     best_cost,
-                //     axis,
-                //     best_threshold,
-                // ))
+                // // if there are fewer objects in the volume, take a more accurate search
+                // let (bounds_min, bounds_max) = if list.len() < 10 {
+                //     let mut min = f32::INFINITY;
+                //     let mut max = f32::NEG_INFINITY;
+
+                //     // find min and max positions of the objects along this axis
+                //     for object in list {
+                //         let object_bounds = object.bounding_volume(source);
+
+                //         if object_bounds.min[axis] < min {
+                //             min = object_bounds.min[axis];
+                //         }
+                //         if object_bounds.max[axis] > max {
+                //             max = object_bounds.max[axis];
+                //         }
+                //     }
+
+                //     (min, max)
+                // } else {
+                //     (bounds.min[axis], bounds.max[axis])
+                // };
+
+                // let step_count = list.len().clamp(5, 20);
+                // let bounds_step = (bounds_max - bounds_min) / step_count as f32;
+
+                // // Vec<(cost, threshold)>
+                // // compute all the results in parallel and then choose the best one
+                // (0..step_count)
+                //     .into_par_iter()
+                //     .filter_map(|i| {
+                //         let threshold = bounds_min + bounds_step * (i as f32 + 0.5);
+                //         let cost = Self::evaluate_split_cost(bounds, list, source, axis, threshold);
+
+                //         cost.map(|(bounds_lt, bounds_gt, cost)| {
+                //             (bounds_lt, bounds_gt, cost, threshold)
+                //         })
+                //     })
+                //     .min_by(|(_, _, cost_a, _), (_, _, cost_b, _)| cost_a.total_cmp(cost_b))
+                //     .map(|(bounds_lt, bounds_gt, cost, threshold)| {
+                //         (bounds_lt, bounds_gt, cost, axis, threshold)
+                //     })
             })
-            .min_by(|(_, _, cost_a, _, _), (_, _, cost_b, _, _)| cost_a.total_cmp(cost_b))
-
-        // if results_per_axis.is_empty() {
-        //     return None;
-        // }
-
-        // let mut best_bounds_lt = BoundingVolume::EMPTY;
-        // let mut best_bounds_gt = BoundingVolume::EMPTY;
-        // let mut best_cost = f32::INFINITY;
-        // let mut best_axis = 0;
-        // let mut best_threshold = 0.0;
-
-        // for (bounds_lt, bounds_gt, cost, axis, threshold) in results_per_axis {
-        //     if cost < best_cost {
-        //         best_bounds_lt = bounds_lt;
-        //         best_bounds_gt = bounds_gt;
-        //         best_cost = cost;
-        //         best_axis = axis;
-        //         best_threshold = threshold;
-        //     }
-        // }
-
-        // Some((
-        //     best_bounds_lt,
-        //     best_bounds_gt,
-        //     best_cost,
-        //     best_axis,
-        //     best_threshold,
-        // ))
+            .min_by(|split_a, split_b| split_a.cost.total_cmp(&split_b.cost))
     }
 
     pub fn split<S: Sync, T: AsBoundingVolumeIndices<S> + Clone + Sync>(
@@ -360,20 +525,18 @@ impl BvhNode {
             child_node: 0,
         };
 
-        let Some((bounds_lt, bounds_gt, cost, split_axis, split_threshold)) =
-            Self::choose_split_axis(self.bounds, self.slice(list), source)
-        else {
+        let Some(split) = Self::select_split(self.bounds, self.slice(list), source) else {
             // log::info!("Refused a split for a node with object count {}", self.len);
             return;
         };
 
         // don't split if the cost of the split would be greater than the current cost
-        if cost >= self.leaf_cost() {
+        if split.cost >= self.leaf_cost() {
             return;
         }
 
-        child_lt.bounds = bounds_lt;
-        child_gt.bounds = bounds_gt;
+        child_lt.bounds = split.bounds_lt;
+        child_gt.bounds = split.bounds_gt;
 
         // std partition without extra bounds loop
         let object_span =
@@ -381,7 +544,7 @@ impl BvhNode {
 
         let split = object_span
             .iter_mut()
-            .partition_in_place(|object| object.center(source)[split_axis] <= split_threshold);
+            .partition_in_place(|object| object.center(source)[split.axis] < split.threshold);
 
         let (lt, gt) = object_span.split_at_mut(split);
 
