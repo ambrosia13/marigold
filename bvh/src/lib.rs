@@ -173,8 +173,6 @@ impl AsGpuBytes for BvhNode {
 impl BvhNode {
     pub const DEPTH_COST: f32 = 1.0;
     pub const OBJECT_COST: f32 = 8.0;
-    pub const MIN_OBJECTS_PER_NODE: u32 = 1;
-    pub const MAX_OBJECTS_PER_NODE: u32 = 128;
 
     pub fn root<S, T: AsBoundingVolumeIndices<S>>(list: &mut [T], source: &[S]) -> Self {
         let mut bounds = BoundingVolume::new(Vec3A::ZERO, Vec3A::ZERO);
@@ -294,6 +292,7 @@ impl BvhNode {
         list: &[T],
         source: &[S],
         axis: usize,
+        min_objects_per_leaf: u32,
     ) -> Option<SuccessfulSplit> {
         // refuse the split if the parent node doesn't cover any area on this axis
         if centroid_bounds.extent()[axis] == 0.0 {
@@ -340,9 +339,7 @@ impl BvhNode {
                 let split = Self::evaluate_binned_split(parent_bounds, &bins, i);
 
                 // refuse a split if too few objects are in each child
-                if split.lt_count < Self::MIN_OBJECTS_PER_NODE
-                    || split.gt_count < Self::MIN_OBJECTS_PER_NODE
-                {
+                if split.lt_count < min_objects_per_leaf || split.gt_count < min_objects_per_leaf {
                     return None;
                 }
 
@@ -361,6 +358,7 @@ impl BvhNode {
         list: &[T],
         source: &[S],
         axis: usize,
+        min_objects_per_leaf: u32,
     ) -> Option<SuccessfulSplit> {
         if list.len() < 16 {
             // for small amounts of objects, do the most accurate search
@@ -379,8 +377,8 @@ impl BvhNode {
                     );
 
                     // refuse a split if too few objects are in each child
-                    if split.lt_count < Self::MIN_OBJECTS_PER_NODE
-                        || split.gt_count < Self::MIN_OBJECTS_PER_NODE
+                    if split.lt_count < min_objects_per_leaf
+                        || split.gt_count < min_objects_per_leaf
                     {
                         return None;
                     }
@@ -411,8 +409,8 @@ impl BvhNode {
                     );
 
                     // refuse a split if too few objects are in each child
-                    if split.lt_count < Self::MIN_OBJECTS_PER_NODE
-                        || split.gt_count < Self::MIN_OBJECTS_PER_NODE
+                    if split.lt_count < min_objects_per_leaf
+                        || split.gt_count < min_objects_per_leaf
                     {
                         return None;
                     }
@@ -480,6 +478,8 @@ impl BvhNode {
         parent_bounds: BoundingVolume,
         list: &[T],
         source: &[S],
+        min_objects_per_leaf: u32,
+        max_objects_per_leaf: u32,
     ) -> Option<SuccessfulSplit> {
         // compute centroid bounds, can be shared across all axes
         let mut centroid_min = Vec3A::INFINITY;
@@ -500,15 +500,29 @@ impl BvhNode {
             .filter_map(|axis| {
                 // for small sizes, choose adaptive sweep; for large sizes, choose binned sweep
                 if list.len() <= 32 {
-                    Self::adaptive_sweep(parent_bounds, centroid_bounds, list, source, axis)
+                    Self::adaptive_sweep(
+                        parent_bounds,
+                        centroid_bounds,
+                        list,
+                        source,
+                        axis,
+                        min_objects_per_leaf,
+                    )
                 } else {
-                    Self::binned_sweep(parent_bounds, centroid_bounds, list, source, axis)
+                    Self::binned_sweep(
+                        parent_bounds,
+                        centroid_bounds,
+                        list,
+                        source,
+                        axis,
+                        min_objects_per_leaf,
+                    )
                 }
             })
             .min_by(|split_a, split_b| split_a.cost.total_cmp(&split_b.cost));
 
         // if no split was found, but there are too many nodes, we can't stop here, so force a median split
-        if split.is_none() && list.len() as u32 > Self::MAX_OBJECTS_PER_NODE {
+        if split.is_none() && list.len() as u32 > max_objects_per_leaf {
             split = (0..3)
                 .into_par_iter()
                 .map(|axis| Self::median_split(parent_bounds, list, source, axis))
@@ -518,6 +532,7 @@ impl BvhNode {
         split
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn split<S: Sync, T: AsBoundingVolumeIndices<S> + Clone + Sync>(
         &mut self,
         list: &mut [T],
@@ -526,8 +541,15 @@ impl BvhNode {
         depth: u32,
         height: Arc<AtomicU32>,
         max_depth: u32,
+        min_objects_per_leaf: u32,
+        max_objects_per_leaf: u32,
     ) {
-        if depth == max_depth || self.len <= Self::MIN_OBJECTS_PER_NODE * 2 {
+        // if we have less than half the min objects per leaf, a split would result in one of the
+        // children having less than the min objects per leaf, so refuse another split
+        // however, only perform this check if we are within the max objects per leaf
+        if depth == max_depth
+            || (self.len <= max_objects_per_leaf && self.len < min_objects_per_leaf * 2)
+        {
             return;
         }
 
@@ -547,13 +569,20 @@ impl BvhNode {
             child_node: 0,
         };
 
-        let Some(split) = Self::select_split(self.bounds, list, source) else {
+        let Some(split) = Self::select_split(
+            self.bounds,
+            list,
+            source,
+            min_objects_per_leaf,
+            max_objects_per_leaf,
+        ) else {
             // log::info!("Refused a split for a node with object count {}", self.len);
             return;
         };
 
         // don't split if the cost of the split would be greater than the current cost
-        if split.cost >= self.leaf_cost() {
+        // however, only perform this check if we are within the max objects per leaf
+        if self.len <= max_objects_per_leaf && split.cost >= self.leaf_cost() {
             return;
         }
 
@@ -581,8 +610,27 @@ impl BvhNode {
             height.fetch_max(depth, std::sync::atomic::Ordering::Relaxed);
 
             // split the children of this node
-            child_gt.split(list_gt, source, nodes, depth + 1, height.clone(), max_depth);
-            child_lt.split(list_lt, source, nodes, depth + 1, height, max_depth);
+            child_gt.split(
+                list_gt,
+                source,
+                nodes,
+                depth + 1,
+                height.clone(),
+                max_depth,
+                min_objects_per_leaf,
+                max_objects_per_leaf,
+            );
+
+            child_lt.split(
+                list_lt,
+                source,
+                nodes,
+                depth + 1,
+                height,
+                max_depth,
+                min_objects_per_leaf,
+                max_objects_per_leaf,
+            );
 
             nodes[self.child_node as usize] = child_gt;
             nodes[self.child_node as usize + 1] = child_lt;
@@ -594,6 +642,8 @@ pub struct BvhSettings<'a> {
     pub name: &'a str,
     pub bounds: Option<BoundingVolume>,
     pub max_depth: u32,
+    pub min_objects_per_leaf: u32,
+    pub max_objects_per_leaf: u32,
     pub profiling_info: bool,
     pub profiling_info_directory: Option<&'a Path>,
 }
@@ -652,6 +702,8 @@ impl BoundingVolumeHierarchy {
                 0,
                 height.clone(),
                 settings.max_depth,
+                settings.min_objects_per_leaf,
+                settings.max_objects_per_leaf,
             );
             nodes[0] = root;
         }

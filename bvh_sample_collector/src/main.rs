@@ -48,6 +48,8 @@ fn main() -> Result<(), Box<dyn Error>> {
                     max_depth: 24, // use depth = 24 for blas max depth
                     profiling_info: true,
                     profiling_info_directory: Some(&Path::new(output_dir).join(generation_name)),
+                    min_objects_per_leaf: 1,
+                    max_objects_per_leaf: 128,
                 };
 
                 // build the bvh but do nothing with it
