@@ -358,7 +358,9 @@ impl BvhNode {
         axis: usize,
         min_objects_per_leaf: u32,
     ) -> Option<SuccessfulSplit> {
-        if list.len() < 16 {
+        let accurate_search_threshold = 8;
+
+        if list.len() < accurate_search_threshold {
             // for small amounts of objects, do the most accurate search
             // since the dataset is small, do a sequential search rather than parallel search
             list.iter()
@@ -390,12 +392,12 @@ impl BvhNode {
                 .min_by(|split_a, split_b| split_a.cost.total_cmp(&split_b.cost))
         } else {
             // do an approximate search
-            let step_count = list.len().clamp(16, 32);
+            let step_count = list.len().clamp(accurate_search_threshold, 32);
             let bounds_step = centroid_bounds.extent()[axis] / step_count as f32;
 
-            // compute results in parallel, choose best one at the end
+            // since we are using this search for small sizes, do a sequential iteration instead of parallel
             (0..step_count)
-                .into_par_iter()
+                // .into_par_iter()
                 .filter_map(|i| {
                     let threshold = centroid_bounds.min[axis] + bounds_step * (i as f32 + 0.5);
                     let split = Self::evaluate_threshold_split(
@@ -498,7 +500,7 @@ impl BvhNode {
             .into_par_iter()
             .filter_map(|axis| {
                 // for small sizes, choose adaptive sweep; for large sizes, choose binned sweep
-                if list.len() <= 32 {
+                if list.len() <= 16 {
                     Self::adaptive_sweep(
                         parent_bounds,
                         centroid_bounds,
