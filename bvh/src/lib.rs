@@ -134,10 +134,6 @@ struct SuccessfulSplit {
 struct SplitBin {
     count: usize,
     bounds: BoundingVolume,
-    left_count: usize,
-    left_bounds: BoundingVolume,
-    right_count: usize,
-    right_bounds: BoundingVolume,
 }
 
 #[derive(Default, Clone, Copy, Debug)]
@@ -218,21 +214,21 @@ impl BvhNode {
     ) -> CandidateSplit {
         let (bins_lt, bins_gt) = bins.split_at(bin_split);
 
-        let bounds_lt = bins_lt.last().unwrap().left_bounds;
-        let bounds_gt = bins_gt.first().unwrap().right_bounds;
+        let mut bounds_lt = BoundingVolume::EMPTY;
+        let mut bounds_gt = BoundingVolume::EMPTY;
 
-        let lt_count = bins_lt.last().unwrap().left_count as u32;
-        let gt_count = bins_gt.first().unwrap().right_count as u32;
+        let mut lt_count = 0;
+        let mut gt_count = 0;
 
-        // for (count, bounds) in bins_lt {
-        //     lt_count += *count as u32;
-        //     bounds_lt.grow_from_bounding_volume(*bounds);
-        // }
+        for bin in bins_lt {
+            lt_count += bin.count as u32;
+            bounds_lt.grow_from_bounding_volume(bin.bounds);
+        }
 
-        // for (count, bounds) in bins_gt {
-        //     gt_count += *count as u32;
-        //     bounds_gt.grow_from_bounding_volume(*bounds);
-        // }
+        for bin in bins_gt {
+            gt_count += bin.count as u32;
+            bounds_gt.grow_from_bounding_volume(bin.bounds);
+        }
 
         let lt_cost =
             bounds_lt.surface_area() / bounds.surface_area() * Self::OBJECT_COST * lt_count as f32;
@@ -305,10 +301,6 @@ impl BvhNode {
             SplitBin {
                 count: 0,
                 bounds: BoundingVolume::EMPTY,
-                left_count: 0,
-                left_bounds: BoundingVolume::EMPTY,
-                right_count: 0,
-                right_bounds: BoundingVolume::EMPTY
             };
             bin_count
         ];
@@ -329,30 +321,6 @@ impl BvhNode {
             bins[bin_index]
                 .bounds
                 .grow_from_bounding_volume(object_bounds);
-        }
-
-        // precompute prefix and suffix values
-        let last = bins.len() - 1;
-
-        bins[0].left_count = bins[0].count;
-        bins[0].left_bounds = bins[0].bounds;
-        bins[last].right_count = bins[last].count;
-        bins[last].right_bounds = bins[last].bounds;
-
-        for i in 1..bins.len() {
-            bins[i].left_count = bins[i - 1].left_count + bins[i].count;
-
-            bins[i].left_bounds = bins[i - 1].left_bounds;
-            let bounds = bins[i].bounds;
-            bins[i].left_bounds.grow_from_bounding_volume(bounds);
-        }
-
-        for i in (0..last).rev() {
-            bins[i].right_count = bins[i + 1].right_count + bins[i].count;
-
-            bins[i].right_bounds = bins[i + 1].right_bounds;
-            let bounds = bins[i].bounds;
-            bins[i].right_bounds.grow_from_bounding_volume(bounds);
         }
 
         // compute all results in parallel then choose the best one
