@@ -157,7 +157,11 @@ impl GltfScene {
             );
         }
 
-        log::info!("Creating {} mesh instances", instances.len());
+        log::info!(
+            "Creating {} mesh instances ({} unique meshes)",
+            instances.len(),
+            meshes.len()
+        );
 
         Self { meshes, instances }
     }
