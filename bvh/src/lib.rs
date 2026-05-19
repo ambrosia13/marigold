@@ -99,10 +99,10 @@ impl BoundingVolume {
     }
 
     pub fn grow_from_bounding_volume(&mut self, bounds: BoundingVolume) {
-        if !self.is_empty() {
+        if !self.is_empty() && !bounds.is_empty() {
             self.min = self.min.min(bounds.min);
             self.max = self.max.max(bounds.max);
-        } else {
+        } else if self.is_empty() {
             *self = bounds;
         }
     }
@@ -112,7 +112,7 @@ impl BoundingVolume {
     }
 }
 
-struct PotentialSplit {
+struct CandidateSplit {
     bounds_lt: BoundingVolume,
     bounds_gt: BoundingVolume,
     lt_count: u32,
@@ -120,7 +120,7 @@ struct PotentialSplit {
     cost: f32,
 }
 
-struct SelectedSplit {
+struct SuccessfulSplit {
     bounds_lt: BoundingVolume,
     bounds_gt: BoundingVolume,
     lt_count: u32,
@@ -205,7 +205,7 @@ impl BvhNode {
         bounds: BoundingVolume,
         bins: &[(usize, BoundingVolume)],
         bin_split: usize,
-    ) -> PotentialSplit {
+    ) -> CandidateSplit {
         let mut bounds_lt = BoundingVolume::EMPTY;
         let mut bounds_gt = BoundingVolume::EMPTY;
 
@@ -224,24 +224,12 @@ impl BvhNode {
             bounds_gt.grow_from_bounding_volume(*bounds);
         }
 
-        // for obj in list {
-        //     let obj_center = obj.center(source);
-
-        //     if obj_center[axis] < threshold {
-        //         bounds_lt.grow_from_bounding_volume(obj.bounding_volume(source));
-        //         lt_count += 1;
-        //     } else {
-        //         bounds_gt.grow_from_bounding_volume(obj.bounding_volume(source));
-        //         gt_count += 1;
-        //     }
-        // }
-
         let lt_cost =
             bounds_lt.surface_area() / bounds.surface_area() * Self::OBJECT_COST * lt_count as f32;
         let gt_cost =
             bounds_gt.surface_area() / bounds.surface_area() * Self::OBJECT_COST * gt_count as f32;
 
-        PotentialSplit {
+        CandidateSplit {
             bounds_lt,
             bounds_gt,
             lt_count,
@@ -256,7 +244,7 @@ impl BvhNode {
         source: &[S],
         axis: usize,
         threshold: f32,
-    ) -> PotentialSplit {
+    ) -> CandidateSplit {
         let mut lt_count = 0;
         let mut gt_count = 0;
 
@@ -280,7 +268,7 @@ impl BvhNode {
         let gt_cost =
             bounds_gt.surface_area() / bounds.surface_area() * Self::OBJECT_COST * gt_count as f32;
 
-        PotentialSplit {
+        CandidateSplit {
             bounds_lt,
             bounds_gt,
             lt_count,
@@ -289,12 +277,113 @@ impl BvhNode {
         }
     }
 
+    fn binned_sweep<S: Sync, T: AsBoundingVolumeIndices<S> + Sync>(
+        parent_bounds: BoundingVolume,
+        list: &[T],
+        source: &[S],
+        axis: usize,
+    ) -> Option<SuccessfulSplit> {
+        // refuse the split if the parent node doesn't cover any area on this axis
+        if parent_bounds.extent()[axis] == 0.0 {
+            // log::info!(
+            //     "extent along this axis for this node was 0, refusing split. node had {} objects",
+            //     list.len()
+            // );
+            return None;
+        }
+
+        let bin_count = list.len().clamp(16, 32);
+
+        let mut bins: Vec<(usize, BoundingVolume)> = vec![(0, BoundingVolume::EMPTY); bin_count];
+
+        // populate bins
+        for object in list {
+            let object_bounds = object.bounding_volume(source);
+            let center = object_bounds.center();
+
+            let percent_along_bounds =
+                (center[axis] - parent_bounds.min[axis]) / parent_bounds.extent()[axis];
+            let percent_along_bounds = percent_along_bounds.clamp(0.0, 1.0); // bandaid fix but idk
+
+            let bin_index = (percent_along_bounds * bin_count as f32).floor() as usize;
+            let bin_index = bin_index.min(bin_count - 1);
+
+            bins[bin_index].0 += 1;
+            bins[bin_index].1.grow_from_bounding_volume(object_bounds);
+        }
+
+        // compute all results in parallel then choose the best one
+        // iterate from the second to the last bin as the split point
+        // safe bc there are at least two bins
+        (1..bin_count)
+            .into_par_iter()
+            .filter_map(|i| {
+                // threshold is needed later for partitioning, so choose the bin boundary
+                let threshold = ((i as f32 / bin_count as f32) * parent_bounds.extent()
+                    + parent_bounds.min[axis])[axis];
+                let split = Self::evaluate_binned_split(parent_bounds, &bins, i);
+
+                // refuse a split if too few objects are in each child
+                if split.lt_count < Self::MIN_OBJECTS_PER_NODE
+                    || split.gt_count < Self::MIN_OBJECTS_PER_NODE
+                {
+                    return None;
+                }
+
+                Some(SuccessfulSplit {
+                    bounds_lt: split.bounds_lt,
+                    bounds_gt: split.bounds_gt,
+                    lt_count: split.lt_count,
+                    gt_count: split.gt_count,
+                    cost: split.cost,
+                    axis,
+                    threshold,
+                })
+            })
+            .min_by(|split_a, split_b| split_a.cost.total_cmp(&split_b.cost))
+
+        // if result.is_none() {
+        //     let mean_along_axis = list
+        //         .iter()
+        //         .map(|i| i.bounding_volume(source).center()[axis])
+        //         .sum::<f32>()
+        //         / list.len() as f32;
+        //     let stddev_along_axis = (list
+        //         .iter()
+        //         .map(|i| (i.bounding_volume(source).center()[axis] - mean_along_axis).powi(2))
+        //         .sum::<f32>()
+        //         / list.len() as f32)
+        //         .sqrt();
+
+        //     let num_valid_bins = bins
+        //         .iter()
+        //         .filter(|(count, _)| *count >= Self::MIN_OBJECTS_PER_NODE as usize)
+        //         .count();
+
+        //     assert!(num_valid_bins < 2); // in order to run into this scenario, the objects were all concentrated into one bin
+
+        //     log::info!(
+        //         "node with {} objects, and {} bins had no successful splits. \
+        //         along this axis, the centroid mean was {} with a standard deviation of {}. \
+        //         the bins cover from {} to {}.",
+        //         list.len(),
+        //         bin_count,
+        //         mean_along_axis,
+        //         stddev_along_axis,
+        //         parent_bounds.min[axis],
+        //         parent_bounds.max[axis]
+        //     );
+        // }
+
+        // result
+    }
+
     fn adaptive_sweep<S: Sync, T: AsBoundingVolumeIndices<S> + Sync>(
         parent_bounds: BoundingVolume,
         list: &[T],
         source: &[S],
         axis: usize,
-    ) -> Option<SelectedSplit> {
+    ) -> Option<SuccessfulSplit> {
         if list.len() < 16 {
             // for small amounts of objects, do the most accurate search
             // since the dataset is small, do a sequential search rather than parallel search
@@ -318,7 +407,7 @@ impl BvhNode {
                         return None;
                     }
 
-                    Some(SelectedSplit {
+                    Some(SuccessfulSplit {
                         bounds_lt: split.bounds_lt,
                         bounds_gt: split.bounds_gt,
                         lt_count: split.lt_count,
@@ -354,7 +443,7 @@ impl BvhNode {
                         return None;
                     }
 
-                    Some(SelectedSplit {
+                    Some(SuccessfulSplit {
                         bounds_lt: split.bounds_lt,
                         bounds_gt: split.bounds_gt,
                         lt_count: split.lt_count,
@@ -373,7 +462,7 @@ impl BvhNode {
         bounds: BoundingVolume,
         list: &[T],
         source: &[S],
-    ) -> Option<SelectedSplit> {
+    ) -> Option<SuccessfulSplit> {
         // compute centroid min and max for use with binning, can be shared across all axes
         let mut centroid_min = Vec3A::INFINITY;
         let mut centroid_max = Vec3A::NEG_INFINITY;
@@ -385,13 +474,16 @@ impl BvhNode {
             centroid_max = centroid_max.max(center);
         }
 
-        let centroid_extent = centroid_max - centroid_min;
+        let centroid_bounds = BoundingVolume::new(centroid_min, centroid_max);
 
         // compute the results for all 3 axes in parallel, and then choose the best
         (0..3)
             .into_par_iter()
             .filter_map(|axis| {
-                Self::adaptive_sweep(bounds, list, source, axis)
+                // pass centroid bounds instead of parent bounds for a tighter fit on the search
+                // should benefit regardless of the type of sweep we are doing
+                Self::binned_sweep(centroid_bounds, list, source, axis)
+
                 // // if the centroid extent is 0 along this axis, refuse split
                 // if centroid_extent[axis] == 0.0 {
                 //     return None;
@@ -535,10 +627,21 @@ impl BvhNode {
             return;
         }
 
-        child_lt.bounds = split.bounds_lt;
-        child_gt.bounds = split.bounds_gt;
+        // child_lt.bounds = split.bounds_lt;
+        // child_gt.bounds = split.bounds_gt;
 
-        // std partition without extra bounds loop
+        for object in self.slice(list) {
+            let bounds = object.bounding_volume(source);
+            let center = bounds.center();
+
+            if center[split.axis] < split.threshold {
+                child_lt.bounds.grow_from_bounding_volume(bounds);
+            } else {
+                child_gt.bounds.grow_from_bounding_volume(bounds);
+            }
+        }
+
+        // std partition
         let object_span =
             &mut list[self.start_index as usize..(self.start_index + self.len) as usize];
 
