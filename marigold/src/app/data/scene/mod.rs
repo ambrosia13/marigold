@@ -16,8 +16,8 @@ use crate::app::{
 
 pub mod geometry;
 
-pub const TLAS_MAX_DEPTH: u32 = 8;
-pub const BLAS_MAX_DEPTH: u32 = 24;
+pub const TLAS_MAX_DEPTH: u32 = 32;
+pub const BLAS_MAX_DEPTH: u32 = 32;
 
 #[derive(AsGpuBytes)]
 struct Counts {

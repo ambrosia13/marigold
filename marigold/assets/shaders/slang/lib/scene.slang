@@ -2,8 +2,8 @@ import "intersect";
 import "stack";
 import "math";
 
-public static const uint TLAS_MAX_DEPTH = 8;
-public static const uint BLAS_MAX_DEPTH = 24;
+public static const uint TLAS_MAX_DEPTH = 32;
+public static const uint BLAS_MAX_DEPTH = 32;
 public static const uint BVH_STACK_SIZE = TLAS_MAX_DEPTH + BLAS_MAX_DEPTH;
 
 public struct Scene {
