@@ -704,8 +704,11 @@ impl BoundingVolumeHierarchy {
         };
 
         // since we enforce the max objects per leaf rule, the lower bound of the number of leaves is
-        // the total objects divided by the maximum possible number of leaves per object 
+        // the total objects divided by the maximum possible number of leaves per object
         // rounded up to account for remainder, since the objects are distributed among the leaves
+        //
+        // note that for our case, min == max == 1, this is an exact value, not just an estimate,
+        // so we allocate exactly as much space as we need. this holds for all min == max that are feasible
         let num_leaves_lower_bound = list.len().div_ceil(settings.max_objects_per_leaf as usize);
 
         // since a BVH is a full binary tree, the total number of nodes given N leaves is 2N - 1
