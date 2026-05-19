@@ -17,7 +17,6 @@ use serde::Serialize;
 pub trait AsBoundingVolume {
     fn bounding_volume(&self) -> BoundingVolume;
 
-    #[allow(unused)]
     fn center(&self) -> Vec3A {
         self.bounding_volume().center()
     }
@@ -93,7 +92,6 @@ impl BoundingVolume {
         2.0 * (width * height + width * depth + height * depth)
     }
 
-    #[allow(unused)]
     pub fn grow<T: AsBoundingVolume>(&mut self, object: &T) {
         let bounds = object.bounding_volume();
         self.grow_from_bounding_volume(bounds);
@@ -116,8 +114,8 @@ impl BoundingVolume {
 struct CandidateSplit {
     bounds_lt: BoundingVolume,
     bounds_gt: BoundingVolume,
-    lt_count: u32,
-    gt_count: u32,
+    count_lt: u32,
+    count_gt: u32,
     cost: f32,
 }
 
@@ -241,8 +239,8 @@ impl BvhNode {
         CandidateSplit {
             bounds_lt,
             bounds_gt,
-            lt_count,
-            gt_count,
+            count_lt: lt_count,
+            count_gt: gt_count,
             cost: Self::DEPTH_COST + lt_cost + gt_cost,
         }
     }
@@ -280,8 +278,8 @@ impl BvhNode {
         CandidateSplit {
             bounds_lt,
             bounds_gt,
-            lt_count,
-            gt_count,
+            count_lt: lt_count,
+            count_gt: gt_count,
             cost: Self::DEPTH_COST + lt_cost + gt_cost,
         }
     }
@@ -339,7 +337,7 @@ impl BvhNode {
                 let split = Self::evaluate_binned_split(parent_bounds, &bins, i);
 
                 // refuse a split if too few objects are in each child
-                if split.lt_count < min_objects_per_leaf || split.gt_count < min_objects_per_leaf {
+                if split.count_lt < min_objects_per_leaf || split.count_gt < min_objects_per_leaf {
                     return None;
                 }
 
@@ -377,8 +375,8 @@ impl BvhNode {
                     );
 
                     // refuse a split if too few objects are in each child
-                    if split.lt_count < min_objects_per_leaf
-                        || split.gt_count < min_objects_per_leaf
+                    if split.count_lt < min_objects_per_leaf
+                        || split.count_gt < min_objects_per_leaf
                     {
                         return None;
                     }
@@ -409,8 +407,8 @@ impl BvhNode {
                     );
 
                     // refuse a split if too few objects are in each child
-                    if split.lt_count < min_objects_per_leaf
-                        || split.gt_count < min_objects_per_leaf
+                    if split.count_lt < min_objects_per_leaf
+                        || split.count_gt < min_objects_per_leaf
                     {
                         return None;
                     }
@@ -447,6 +445,7 @@ impl BvhNode {
             bounds_lt.grow_from_bounding_volume(object.bounding_volume(source));
         }
 
+        // include the median in the greater half
         bounds_gt.grow_from_bounding_volume(median.bounding_volume(source));
         for object in gt.iter() {
             bounds_gt.grow_from_bounding_volume(object.bounding_volume(source));
@@ -462,8 +461,8 @@ impl BvhNode {
         let split = CandidateSplit {
             bounds_lt,
             bounds_gt,
-            lt_count: lt.len() as u32,
-            gt_count: 1 + gt.len() as u32,
+            count_lt: lt.len() as u32,
+            count_gt: 1 + gt.len() as u32,
             cost: Self::DEPTH_COST + lt_cost + gt_cost,
         };
 
@@ -589,8 +588,8 @@ impl BvhNode {
         child_lt.bounds = split.bounds_lt;
         child_gt.bounds = split.bounds_gt;
 
-        child_lt.len = split.lt_count;
-        child_gt.len = split.gt_count;
+        child_lt.len = split.count_lt;
+        child_gt.len = split.count_gt;
 
         // std partition
         let split = list
@@ -677,9 +676,25 @@ impl BoundingVolumeHierarchy {
             return Self { nodes: Vec::new() };
         }
 
-        let instant = std::time::Instant::now();
+        let feasible = if settings.min_objects_per_leaf == settings.max_objects_per_leaf {
+            (list.len() as u32).is_multiple_of(settings.min_objects_per_leaf)
+        } else {
+            settings.max_objects_per_leaf >= 2 * settings.min_objects_per_leaf - 1
+        };
 
-        // let max_depth = 32; //f32::log2(list.len() as f32) as u32 + 6;
+        if !feasible {
+            log::warn!(
+                "BVH may be impossible to construct with the given constraints; \
+                min objects per leaf {} and max objects per leaf {} is likely an impossible condition with total objects {}. \
+                BVH construction will follow the max objects per leaf rule, \
+                but may not follow the min objects per leaf rule.",
+                settings.min_objects_per_leaf,
+                settings.max_objects_per_leaf,
+                list.len()
+            );
+        }
+
+        let instant = std::time::Instant::now();
 
         // create the root node
         let mut root = if let Some(bounds) = settings.bounds {
@@ -688,7 +703,14 @@ impl BoundingVolumeHierarchy {
             BvhNode::root(list, source)
         };
 
-        let initial_node_capacity = list.len() * 2 / 3;
+        // since we enforce the max objects per leaf rule, the lower bound of the number of leaves is
+        // the total objects divided by the maximum possible number of leaves per object 
+        // rounded up to account for remainder, since the objects are distributed among the leaves
+        let num_leaves_lower_bound = list.len().div_ceil(settings.max_objects_per_leaf as usize);
+
+        // since a BVH is a full binary tree, the total number of nodes given N leaves is 2N - 1
+        let initial_node_capacity = 2 * num_leaves_lower_bound - 1;
+
         let mut nodes = Vec::with_capacity(initial_node_capacity);
         nodes.push(root);
 
@@ -737,22 +759,22 @@ impl BoundingVolumeHierarchy {
 
             log::info!(
                 r#"
-            ---------- Bounding Volume Hierarchy Info ----------
-            - Objects: {},
-            - Nodes: {},
-            - Allowed depth: {},
-            - Tree Height: {},
+---------- Bounding Volume Hierarchy Info ----------
+- Objects: {},
+- Nodes: {},
+- Allowed depth: {},
+- Tree Height: {},
 
-            Leaf nodes:
-                - Count: {}
-                - Objects
-                    - Min: {}
-                    - Max: {}
-                    - Average: {}
-                    - Standard Deviation: {}
+Leaf nodes:
+    - Count: {}
+    - Objects
+        - Min: {}
+        - Max: {}
+        - Average: {}
+        - Standard Deviation: {}
 
-            Construction time: {} seconds
-            ----------------------------------------------------
+Construction time: {} seconds
+----------------------------------------------------
             "#,
                 list.len(),
                 nodes.len(),
