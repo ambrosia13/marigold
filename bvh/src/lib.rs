@@ -10,7 +10,7 @@ use std::{
 use glam::Vec3A;
 use gpu_layout::{AsGpuBytes, GpuBytes};
 use rand::Rng;
-use rayon::iter::{IntoParallelIterator, IntoParallelRefIterator, ParallelIterator};
+use rayon::iter::{IntoParallelIterator, ParallelIterator};
 use serde::Serialize;
 
 pub trait AsBoundingVolume {
@@ -563,15 +563,15 @@ impl BvhNode {
         child_lt.bounds = split.bounds_lt;
         child_gt.bounds = split.bounds_gt;
 
+        child_lt.len = split.lt_count;
+        child_gt.len = split.gt_count;
+
         // std partition
         let split = list
             .iter_mut()
             .partition_in_place(|object| object.center(source)[split.axis] < split.threshold);
 
         let (list_lt, list_gt) = list.split_at_mut(split);
-
-        child_lt.len = list_lt.len() as u32;
-        child_gt.len = list_gt.len() as u32;
 
         child_gt.start_index = self.start_index + child_lt.len;
 
