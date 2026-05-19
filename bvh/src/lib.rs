@@ -434,9 +434,53 @@ impl BvhNode {
         }
     }
 
-    // returns (bounds_lt, bounds_gt, cost, axis, threshold)
+    fn median_split<S: Sync, T: AsBoundingVolumeIndices<S> + Clone + Sync>(
+        parent_bounds: BoundingVolume,
+        list: &[T],
+        source: &[S],
+        axis: usize,
+    ) -> SuccessfulSplit {
+        let median_index = list.len() / 2;
+
+        let mut list = list.to_vec();
+        let (lt, median, gt) = list.select_nth_unstable_by(median_index, |a, b| {
+            a.center(source)[axis].total_cmp(&b.center(source)[axis])
+        });
+
+        let threshold = median.center(source)[axis];
+
+        let mut bounds_lt = BoundingVolume::EMPTY;
+        let mut bounds_gt = BoundingVolume::EMPTY;
+
+        for object in lt.iter() {
+            bounds_lt.grow_from_bounding_volume(object.bounding_volume(source));
+        }
+
+        bounds_gt.grow_from_bounding_volume(median.bounding_volume(source));
+        for object in gt.iter() {
+            bounds_gt.grow_from_bounding_volume(object.bounding_volume(source));
+        }
+
+        let lt_cost = bounds_lt.surface_area() / parent_bounds.surface_area()
+            * Self::OBJECT_COST
+            * lt.len() as f32;
+        let gt_cost = bounds_gt.surface_area() / parent_bounds.surface_area()
+            * Self::OBJECT_COST
+            * (1 + gt.len()) as f32;
+
+        SuccessfulSplit {
+            bounds_lt,
+            bounds_gt,
+            lt_count: lt.len() as u32,
+            gt_count: 1 + gt.len() as u32,
+            cost: Self::DEPTH_COST + lt_cost + gt_cost,
+            axis,
+            threshold,
+        }
+    }
+
     fn select_split<S: Sync, T: AsBoundingVolumeIndices<S> + Clone + Sync>(
-        bounds: BoundingVolume,
+        parent_bounds: BoundingVolume,
         list: &[T],
         source: &[S],
     ) -> Option<SuccessfulSplit> {
@@ -454,14 +498,27 @@ impl BvhNode {
         let centroid_bounds = BoundingVolume::new(centroid_min, centroid_max);
 
         // compute the results for all 3 axes in parallel, and then choose the best
-        (0..3)
+        let mut split = (0..3)
             .into_par_iter()
             .filter_map(|axis| {
-                // pass centroid bounds instead of parent bounds for a tighter fit on the search
-                // should benefit regardless of the type of sweep we are doing
-                Self::binned_sweep(bounds, centroid_bounds, list, source, axis)
+                // for small sizes, choose adaptive sweep; for large sizes, choose binned sweep
+                if list.len() <= 32 {
+                    Self::adaptive_sweep(parent_bounds, centroid_bounds, list, source, axis)
+                } else {
+                    Self::binned_sweep(parent_bounds, centroid_bounds, list, source, axis)
+                }
             })
-            .min_by(|split_a, split_b| split_a.cost.total_cmp(&split_b.cost))
+            .min_by(|split_a, split_b| split_a.cost.total_cmp(&split_b.cost));
+
+        // if no split was found, but there are too many nodes, we can't stop here, so force a median split
+        if split.is_none() && list.len() as u32 > Self::MAX_OBJECTS_PER_NODE {
+            split = (0..3)
+                .into_par_iter()
+                .map(|axis| Self::median_split(parent_bounds, list, source, axis))
+                .min_by(|split_a, split_b| split_a.cost.total_cmp(&split_b.cost))
+        }
+
+        split
     }
 
     pub fn split<S: Sync, T: AsBoundingVolumeIndices<S> + Clone + Sync>(
@@ -493,7 +550,7 @@ impl BvhNode {
             child_node: 0,
         };
 
-        let Some(split) = Self::select_split(self.bounds, self.slice(list), source) else {
+        let Some(split) = Self::select_split(self.bounds, list, source) else {
             // log::info!("Refused a split for a node with object count {}", self.len);
             return;
         };
@@ -506,55 +563,17 @@ impl BvhNode {
         child_lt.bounds = split.bounds_lt;
         child_gt.bounds = split.bounds_gt;
 
-        // for object in self.slice(list) {
-        //     let bounds = object.bounding_volume(source);
-        //     let center = bounds.center();
-
-        //     if center[split.axis] < split.threshold {
-        //         child_lt.bounds.grow_from_bounding_volume(bounds);
-        //     } else {
-        //         child_gt.bounds.grow_from_bounding_volume(bounds);
-        //     }
-        // }
-
         // std partition
-        let object_span =
-            &mut list[self.start_index as usize..(self.start_index + self.len) as usize];
-
-        let split = object_span
+        let split = list
             .iter_mut()
             .partition_in_place(|object| object.center(source)[split.axis] < split.threshold);
 
-        let (lt, gt) = object_span.split_at(split);
+        let (list_lt, list_gt) = list.split_at_mut(split);
 
-        child_lt.len = lt.len() as u32;
-        child_gt.len = gt.len() as u32;
+        child_lt.len = list_lt.len() as u32;
+        child_gt.len = list_gt.len() as u32;
 
         child_gt.start_index = self.start_index + child_lt.len;
-
-        // manual partition
-        // let greater = |object: &T| object.center(source)[split_axis] > split_threshold;
-
-        // for global_index in self.start_index..(self.start_index + self.len) {
-        //     let global_index = global_index as usize;
-        //     let object = &list[global_index];
-
-        //     if greater(object) {
-        //         // child_gt
-        //         //     .bounds
-        //         //     .grow_from_bounding_volume(object.bounding_volume(source));
-        //         child_gt.len += 1;
-
-        //         let swap_index = (child_gt.start_index + child_gt.len) as usize - 1;
-        //         list.swap(swap_index, global_index);
-        //         child_lt.start_index += 1;
-        //     } else {
-        //         // child_lt
-        //         //     .bounds
-        //         //     .grow_from_bounding_volume(object.bounding_volume(source));
-        //         child_lt.len += 1;
-        //     }
-        // }
 
         if child_gt.len > 0 && child_lt.len > 0 {
             self.child_node = nodes.len() as u32;
@@ -565,8 +584,8 @@ impl BvhNode {
             height.fetch_max(depth, std::sync::atomic::Ordering::Relaxed);
 
             // split the children of this node
-            child_gt.split(list, source, nodes, depth + 1, height.clone(), max_depth);
-            child_lt.split(list, source, nodes, depth + 1, height, max_depth);
+            child_gt.split(list_gt, source, nodes, depth + 1, height.clone(), max_depth);
+            child_lt.split(list_lt, source, nodes, depth + 1, height, max_depth);
 
             nodes[self.child_node as usize] = child_gt;
             nodes[self.child_node as usize + 1] = child_lt;
