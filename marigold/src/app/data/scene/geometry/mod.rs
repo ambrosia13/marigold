@@ -210,7 +210,7 @@ pub fn update_tlas(mut tlas_nodes: ResMut<TlasNodes>, mut meshes: ResMut<Meshes>
             profiling_info_directory: Some(&util::get_asset_root().join("bvh_debug")),
         };
 
-        let bvh = BoundingVolumeHierarchy::<_, _, 1, 1>::new(meshes, &[], settings);
+        let bvh = BoundingVolumeHierarchy::new::<_, _, 1, 1>(meshes, &[], settings);
         **tlas_nodes = bvh.into_nodes();
     }
 }
