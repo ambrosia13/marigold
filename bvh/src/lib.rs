@@ -286,12 +286,13 @@ impl BvhNode {
 
     fn binned_sweep<S: Sync, T: AsBoundingVolumeIndices<S> + Sync, const MIN_LEAF_OBJECTS: u32>(
         parent_bounds: BoundingVolume,
+        centroid_bounds: BoundingVolume,
         list: &[T],
         source: &[S],
         axis: usize,
     ) -> Option<SuccessfulSplit> {
         // refuse the split if the parent node doesn't cover any area on this axis
-        if parent_bounds.extent()[axis] == 0.0 {
+        if centroid_bounds.extent()[axis] == 0.0 {
             return None;
         }
 
@@ -311,7 +312,7 @@ impl BvhNode {
             let center = object_bounds.center();
 
             let percent_along_bounds =
-                (center[axis] - parent_bounds.min[axis]) / parent_bounds.extent()[axis];
+                (center[axis] - centroid_bounds.min[axis]) / centroid_bounds.extent()[axis];
 
             let bin_index = (percent_along_bounds * bin_count as f32).floor() as usize;
             let bin_index = bin_index.min(bin_count - 1);
@@ -329,8 +330,8 @@ impl BvhNode {
             .into_par_iter()
             .filter_map(|i| {
                 // threshold is needed later for partitioning, so choose the bin boundary
-                let threshold = i as f32 / bin_count as f32 * parent_bounds.extent()[axis]
-                    + parent_bounds.min[axis];
+                let threshold = i as f32 / bin_count as f32 * centroid_bounds.extent()[axis]
+                    + centroid_bounds.min[axis];
                 let split = Self::evaluate_binned_split(parent_bounds, &bins, i);
 
                 // refuse a split if too few objects are in each child
@@ -482,25 +483,31 @@ impl BvhNode {
         list: &[T],
         source: &[S],
     ) -> Option<SuccessfulSplit> {
-        // // compute centroid bounds, can be shared across all axes
-        // let mut centroid_min = Vec3A::INFINITY;
-        // let mut centroid_max = Vec3A::NEG_INFINITY;
+        // compute centroid bounds, can be shared across all axes
+        let mut centroid_min = Vec3A::INFINITY;
+        let mut centroid_max = Vec3A::NEG_INFINITY;
 
-        // for object in list {
-        //     let center = object.center(source);
+        for object in list {
+            let center = object.center(source);
 
-        //     centroid_min = centroid_min.min(center);
-        //     centroid_max = centroid_max.max(center);
-        // }
+            centroid_min = centroid_min.min(center);
+            centroid_max = centroid_max.max(center);
+        }
 
-        // let centroid_bounds = BoundingVolume::new(centroid_min, centroid_max);
+        let centroid_bounds = BoundingVolume::new(centroid_min, centroid_max);
 
         // compute the results for all 3 axes in parallel, and then choose the best
         let mut split = (0..3)
             .into_par_iter()
             .filter_map(|axis| {
                 // choose binned sweep every time, compromises quality but insanely fast speed
-                Self::binned_sweep::<_, _, MIN_LEAF_OBJECTS>(parent_bounds, list, source, axis)
+                Self::binned_sweep::<_, _, MIN_LEAF_OBJECTS>(
+                    parent_bounds,
+                    centroid_bounds,
+                    list,
+                    source,
+                    axis,
+                )
             })
             .min_by(|split_a, split_b| split_a.cost.total_cmp(&split_b.cost));
 
