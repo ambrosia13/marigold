@@ -208,11 +208,9 @@ pub fn update_tlas(mut tlas_nodes: ResMut<TlasNodes>, mut meshes: ResMut<Meshes>
             max_depth: TLAS_MAX_DEPTH,
             profiling_info: util::get_runtime_flag("PROFILING_INFO"),
             profiling_info_directory: Some(&util::get_asset_root().join("bvh_debug")),
-            min_objects_per_leaf: 1,
-            max_objects_per_leaf: 1,
         };
 
-        let bvh = BoundingVolumeHierarchy::new(meshes, &[], settings);
+        let bvh = BoundingVolumeHierarchy::<_, _, 1, 1>::new(meshes, &[], settings);
         **tlas_nodes = bvh.into_nodes();
     }
 }

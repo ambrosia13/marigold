@@ -63,11 +63,13 @@ pub fn load_all_mesh_assets(
                     max_depth: BLAS_MAX_DEPTH,
                     profiling_info: util::get_runtime_flag("PROFILING_INFO"),
                     profiling_info_directory: Some(&util::get_asset_root().join("bvh_debug")),
-                    min_objects_per_leaf: 1,
-                    max_objects_per_leaf: 1,
                 };
 
-                BoundingVolumeHierarchy::new(&mut mesh.triangles, &mesh.vertices, settings)
+                BoundingVolumeHierarchy::new::<_, _, 1, 1>(
+                    &mut mesh.triangles,
+                    &mesh.vertices,
+                    settings,
+                )
             })
             .collect();
 

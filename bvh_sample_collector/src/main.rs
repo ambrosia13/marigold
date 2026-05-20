@@ -48,12 +48,14 @@ fn main() -> Result<(), Box<dyn Error>> {
                     max_depth: 24, // use depth = 24 for blas max depth
                     profiling_info: true,
                     profiling_info_directory: Some(&Path::new(output_dir).join(generation_name)),
-                    min_objects_per_leaf: 1,
-                    max_objects_per_leaf: 128,
                 };
 
                 // build the bvh but do nothing with it
-                let _ = BoundingVolumeHierarchy::new(&mut mesh.triangles, &mesh.vertices, settings);
+                let _ = BoundingVolumeHierarchy::new::<_, _, 1, 128>(
+                    &mut mesh.triangles,
+                    &mesh.vertices,
+                    settings,
+                );
             });
 
             println!(
