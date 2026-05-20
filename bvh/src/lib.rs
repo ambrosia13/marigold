@@ -11,7 +11,6 @@ use std::{
 use glam::Vec3A;
 use gpu_layout::{AsGpuBytes, GpuBytes};
 use rand::Rng;
-use rayon::iter::{IntoParallelIterator, ParallelIterator};
 use serde::Serialize;
 
 pub trait AsBoundingVolume {
@@ -327,7 +326,7 @@ impl BvhNode {
         // iterate from the second to the last bin as the split point
         // safe bc there are at least two bins
         (1..bin_count)
-            .into_par_iter()
+            // .into_par_iter()
             .filter_map(|i| {
                 // threshold is needed later for partitioning, so choose the bin boundary
                 let threshold = i as f32 / bin_count as f32 * centroid_bounds.extent()[axis]
@@ -498,7 +497,7 @@ impl BvhNode {
 
         // compute the results for all 3 axes in parallel, and then choose the best
         let mut split = (0..3)
-            .into_par_iter()
+            // .into_par_iter()
             .filter_map(|axis| {
                 // choose binned sweep every time, compromises quality but insanely fast speed
                 Self::binned_sweep::<_, _, MIN_LEAF_OBJECTS>(
@@ -514,7 +513,7 @@ impl BvhNode {
         // if no split was found, but there are too many nodes, we can't stop here, so force a median split
         if split.is_none() && list.len() as u32 > MAX_LEAF_OBJECTS {
             split = (0..3)
-                .into_par_iter()
+                // .into_par_iter()
                 .map(|axis| Self::median_split(parent_bounds, list, source, axis))
                 .min_by(|split_a, split_b| split_a.cost.total_cmp(&split_b.cost))
         }
