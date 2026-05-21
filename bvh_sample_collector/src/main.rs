@@ -24,12 +24,12 @@ fn main() -> Result<(), Box<dyn Error>> {
 
         let gltf_path = entry.path();
 
-        println!("loading gltf scene {}...", &mesh_name);
+        println!("loading gltf scene {}...", mesh_name);
 
         let gltf = GltfScene::load(gltf_path);
         let (meshes, _) = gltf.into_meshes_and_instances();
 
-        println!("finished loading gltf scene {}!", &mesh_name);
+        println!("finished loading gltf scene {}!", mesh_name);
 
         let mesh_name_str = &mesh_name;
 

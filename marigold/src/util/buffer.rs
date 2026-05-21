@@ -109,7 +109,7 @@ where
         // need to reallocate buffer & return true
         log::info!(
             "buffer {} grew beyond capacity, reallocating. old capacity: {} ({:.2} {}), new capacity: {} ({:.2} {})",
-            &self.label,
+            self.label,
             self.uploaded_capacity,
             old_size,
             old_units,
@@ -138,7 +138,7 @@ where
 
         drop(view);
         self.buffer.unmap();
-        log::info!("buffer {} explicitly unmapped", &self.label);
+        log::info!("buffer {} explicitly unmapped", self.label);
 
         self.uploaded_capacity = capacity;
         self.padding = padding;

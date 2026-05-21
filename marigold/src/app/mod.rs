@@ -256,7 +256,7 @@ impl ApplicationHandler for App {
                     world.write_message(MouseInputMessage { state, button });
                 }
             }
-            WindowEvent::MouseWheel { delta: _, .. } => {}
+            WindowEvent::MouseWheel { .. } => {}
 
             // lifecycle events
             WindowEvent::CloseRequested => event_loop.exit(),

@@ -151,7 +151,7 @@ impl GltfScene {
             log::info!(
                 "Mesh #{:?} of mesh at path {} has {} vertices and {} triangles",
                 i,
-                &path.to_string_lossy(),
+                path.to_string_lossy(),
                 mesh.vertices.len(),
                 mesh.triangles.len()
             );
