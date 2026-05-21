@@ -155,17 +155,21 @@ public struct Scene {
     ) {
         Mesh mesh = meshes[meshIndex];
 
+        // // test the mesh bounding volume with the world-space ray since we pre-transformed that
+        // // for the TLAS
+        // BvhHit meshHit = rayIntersectBoundingVolume(ray, mesh.boundsMin, mesh.boundsMax);
+
+        // // miss the bounding volume, no hit
+        // if (!meshHit.success) {
+        //     return;
+        // }
+
         Ray localRay = Ray(
             mul(mesh.inverseTransform, float4(ray.pos, 1.0)).xyz,
             mul(mesh.inverseTransform, float4(ray.dir, 0.0)).xyz
         );
 
-        BvhHit meshHit = rayIntersectBoundingVolume(localRay, mesh.boundsMin, mesh.boundsMax);
-
-        // miss the bounding volume, no hit
-        if (!meshHit.success) {
-            return;
-        }
+        Hit localClosestHit = closestHit;
 
         uint baseStackSize = payloadStack.size();
         payloadStack.push(blasNodes[mesh.blasRoot].payload());
@@ -181,7 +185,7 @@ public struct Scene {
                 BvhNode childA = blasNodes[mesh.blasRoot + childIndex];
                 BvhNode childB = blasNodes[mesh.blasRoot + childIndex + 1];
 
-                float closestHitDistance = select(closestHit.success, closestHit.distance, float.maxValue);
+                float closestHitDistance = select(localClosestHit.success, localClosestHit.distance, float.maxValue);
 
                 BvhNodePayload payloadA = childA.payload();
                 BvhNodePayload payloadB = childB.payload();
@@ -217,17 +221,18 @@ public struct Scene {
                 // node has no children, trace triangles directly
                 for (uint i = startIndex; i < startIndex + length; i++) {
                     Hit hit = rayIntersectTriangle(localRay, mesh.vertexOffset, mesh.triangleOffset + i);
+                    localClosestHit = Hit.merge(localClosestHit, hit);
 
-                    // transform hit
-                    hit.position.xyz = mul(mesh.transform, float4(hit.position.xyz, 1.0)).xyz;
-                    hit.normal = normalize(mul(hit.normal, float3x3(mesh.inverseTransform)));
-                    hit.distance = distance(hit.position, ray.pos);
-
-                    closestHit = Hit.merge(closestHit, hit);
                     traversalInfo.z++; // triangle intersection tests
                 }
             }
         }
+
+        // transform local hit back to world space so we can merge with TLAS result
+        localClosestHit.position = ray.pos + ray.dir * localClosestHit.distance;
+        localClosestHit.normal = normalize(mul(localClosestHit.normal, float3x3(mesh.inverseTransform)));
+
+        closestHit = Hit.merge(closestHit, localClosestHit);
     }
 }
 

@@ -1,6 +1,6 @@
 use bvh::{AsBoundingVolume, AsBoundingVolumeIndices, BoundingVolume};
 use derived_deref::Deref;
-use glam::{Mat4, Vec3, Vec3A, Vec4Swizzles};
+use glam::{Mat4, Vec3, Vec3A, Vec4, Vec4Swizzles};
 use gpu_layout::{AsGpuBytes, GpuBytes};
 
 #[derive(AsGpuBytes, Default, Clone, Copy)]
@@ -81,12 +81,38 @@ impl AsGpuBytes for MeshMetadata {
 
 impl AsBoundingVolume for MeshMetadata {
     fn bounding_volume(&self) -> BoundingVolume {
-        BoundingVolume::new(
-            (self.transform * self.bounds_min.extend(1.0)).xyz().into(),
-            (self.transform * self.bounds_max.extend(1.0)).xyz().into(),
-        )
+        let min = self.bounds_min;
+        let max = self.bounds_max;
+
+        // simple matrix multiply won't work so we have to transform all 8 corners and then select
+        // min and max from the transformed corners :(
+
+        // pre-fill them to vec4s for the transformation
+        let transformed_corners = [
+            Vec4::new(min.x, min.y, min.z, 1.0),
+            Vec4::new(min.x, min.y, max.z, 1.0),
+            Vec4::new(min.x, max.y, min.z, 1.0),
+            Vec4::new(min.x, max.y, max.z, 1.0),
+            Vec4::new(max.x, min.y, min.z, 1.0),
+            Vec4::new(max.x, min.y, max.z, 1.0),
+            Vec4::new(max.x, max.y, min.z, 1.0),
+            Vec4::new(max.x, max.y, max.z, 1.0),
+        ]
+        .into_iter()
+        .map(|v| Vec3A::from_vec4(self.transform * v));
+
+        let mut transformed_min = Vec3A::INFINITY;
+        let mut transformed_max = Vec3A::NEG_INFINITY;
+
+        for corner in transformed_corners {
+            transformed_min = transformed_min.min(corner);
+            transformed_max = transformed_max.max(corner);
+        }
+
+        BoundingVolume::new(transformed_min, transformed_max)
     }
 }
+
 pub struct MeshRecord {
     pub label: String,
     // want to keep track of bounds on cpu-side so we can normalize, and place on ground, etc.
