@@ -723,6 +723,13 @@ impl BoundingVolumeHierarchy {
             nodes[0] = root;
         }
 
+        // assert that our estimate is correct if our params are such that we can make an exact estimate
+        // to ensure the estimate is correct, just make sure the initial and final capacities are equal
+        if MIN_LEAF_OBJECTS == 1 && MAX_LEAF_OBJECTS == 1 {
+            let final_node_capacity = nodes.capacity();
+            assert_eq!(initial_node_capacity, final_node_capacity);
+        }
+
         let construction_time = instant.elapsed().as_secs_f64();
 
         if settings.profiling_info {
@@ -781,11 +788,11 @@ Construction time: {} seconds
                 construction_time
             );
 
-            // if feasible {
-            //     // additional assertions to make sure we have exact stats with a feasible bvh configuration
-            //     assert!(min_leaf_object_count == MIN_LEAF_OBJECTS);
-            //     assert!(max_leaf_object_count == MAX_LEAF_OBJECTS);
-            // }
+            if feasible {
+                // additional assertions to make sure we have exact stats with a feasible bvh configuration
+                assert!(min_leaf_object_count == MIN_LEAF_OBJECTS);
+                assert!(max_leaf_object_count == MAX_LEAF_OBJECTS);
+            }
 
             let info = BvhProfilingInfo {
                 name: settings.name,
