@@ -97,8 +97,8 @@ impl Default for Schedules {
         // event-driven schedules
         let mut on_resize = Schedule::new(OnResizeSchedule);
 
-        if util::get_runtime_flag("SINGLE_THREADED") {
-            log::info!("using single threaded system execution due to environment variable");
+        if util::get_env_flag("ECS_SINGLE_THREADED") {
+            log::info!("using single threaded ECS system execution due to environment variable");
 
             on_init_message_setup.set_executor_kind(ExecutorKind::SingleThreaded);
             on_init_render_setup.set_executor_kind(ExecutorKind::SingleThreaded);

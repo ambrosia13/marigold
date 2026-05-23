@@ -15,13 +15,24 @@ A list of all the workspaces and their purpose:
 
 # Profiling and testing
 
-Profiling in marigold is still a work-in-progress. For now, detailed statistics for the construction of bounding volume hierarchies is optionally logged and written to disk.
+## In marigold
 
-To use this functionality in marigold, use the environment variable `PROFILING_INFO`. For example, to collect BVH statistics when running a dev build, use this command:
+Profiling in marigold is still a work-in-progress. For now, detailed statistics for the construction of bounding volume hierarchies is logged and/or written to disk.
+
+To use this functionality in marigold, use the environment variable `PROFILING_INFO`:
+- If set to 0 or unset, no data will be collected.
+- If set to 1, data will be logged to stdout.
+- If set to 2, data will be logged and written to disk at the asset root directory in `bvh_debug`.
+
+Note that collecting profiling information incurs a little extra cost for measuring all the statistics. If `PROFILING_INFO` is set to 0 or unset, this expensive information is not collected, minimal logging is done, and nothing is written to disk. 
+
+
+For example, to log BVH statistics and save them to disk when running a dev build, use this command:
 ```
-PROFILING_INFO=1 cargo run -p marigold
+PROFILING_INFO=2 cargo run -p marigold
 ```
-Note that collecting profiling information incurs a little extra cost for measuring all the statistics. If this environment variable is set to 0, or not used, this expensive information is not collected, minimal logging is done, and nothing is written to disk. 
+
+## Dedicated profiling options
 
 For more streamlined, heavyweight data collection, use the crate `bvh_sample_collector`. It takes some command line arguments:
 
@@ -30,9 +41,11 @@ For more streamlined, heavyweight data collection, use the crate `bvh_sample_col
 3. generation name: the name of the directory inside the snapshot directory to save all bvh data. For example, if you're testing out a cool optimization to the BVH and you want the stats files to be placed in `bvh_snapshots/cool_optimization/*.json`, the snapshot directory would be `bvh_snapshots` and the generation name would be `cool_optimization`.
 4. number of samples: an integral value of the number of times to build a bvh for a single mesh, more samples means less noise in non-deterministic stats like construction time
 
-I recommend running this crate in release mode, since debug mode is not as reliable for profiling. Here is an example command:
+I recommend running this crate in release mode, since debug mode is not as reliable for profiling. Additionally, for less noise at the cost of slower profiling, disable multithreading. 
+
+Here is an example command to collect 15 samples with no multithreading:
 ```
-cargo run --release -p bvh_sample_collector -- meshes bvh_snapshots baseline 15
+RAYON_NUM_THREADS=1 cargo run --release -p bvh_sample_collector -- meshes bvh_snapshots baseline 15
 ```
 
 Note that the `PROFILING_INFO` environment variable is not used for this crate.
@@ -70,7 +83,7 @@ This is useful for preparing a binary for programs like RenderDoc and NVIDIA NSi
 
 ## when running
 
-- `WINIT_UNIX_BACKEND`: if set to `x11`, creates an X11 window; if set to `wayland`, creates a Wayland window; otherwise let winit decide. This is useful for programs like RenderDoc which don't work well in wayland. Has no effect outside of Linux.
-- `DISABLE_VALIDATION_LAYERS`: only applies in debug builds; set to any value other than 0 to keep wgpu debug info present but explicitly disable vulkan validation layers
-- `PROFILING_INFO`: set to any value other than 0 to log and/or write profiling information to disk for optimization analysis over several builds
-- `SINGLE_THREADED`: make bevy ECS use a single threaded system executor. this doesn't make the program as a whole run as a single thread, just the ECS
+- `WINIT_UNIX_BACKEND`: if set to `x11`, creates an X11 window; if set to `wayland`, creates a Wayland window; if unset, let the window backend decide. This is useful for programs like RenderDoc which don't work well in Wayland. Has no effect outside of Linux.
+- `DISABLE_VALIDATION_LAYERS`: set to any value other than 0 to disable Vulkan validation layers while keeping other wgpu debug info present. Only applies in debug builds.
+- `PROFILING_INFO`: set to 1 to log and 2 to additionally write specific profiling information to disk.
+- `ECS_SINGLE_THREADED`: set to any value other than 0 to make `bevy-ecs` use a single threaded system executor. This doesn't make the program as a whole run as a single thread, just the ECS backend. For program-wide single threading, use this environment variable in combination with `RAYON_NUM_THREADS=1`.

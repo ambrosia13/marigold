@@ -86,9 +86,9 @@ impl SurfaceState {
         // enable vulkan validation layer in debug builds
         #[cfg(debug_assertions)]
         {
-            use crate::util::get_runtime_flag;
+            use crate::util::get_env_flag;
 
-            if get_runtime_flag("DISABLE_VALIDATION_LAYERS") {
+            if get_env_flag("DISABLE_VALIDATION_LAYERS") {
                 // enable debug info, but not full validation
                 instance_flags |= wgpu::InstanceFlags::DEBUG;
             } else {

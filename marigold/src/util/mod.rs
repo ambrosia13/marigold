@@ -1,10 +1,13 @@
-use std::path::{Path, PathBuf};
+use std::{
+    path::{Path, PathBuf},
+    str::FromStr,
+};
 
 use glam::UVec3;
 
 pub mod buffer;
 
-pub fn get_runtime_flag(name: &str) -> bool {
+pub fn get_env_flag(name: &str) -> bool {
     match std::env::var(name) {
         Ok(flag) => match flag.parse::<u32>() {
             Ok(flag) => flag != 0,
@@ -18,6 +21,37 @@ pub fn get_runtime_flag(name: &str) -> bool {
             }
         },
         _ => false,
+    }
+}
+
+pub fn get_env_val<T: FromStr>(name: &str) -> Option<T> {
+    match std::env::var(name) {
+        Ok(val) => match val.parse::<T>() {
+            Ok(val) => Some(val),
+            Err(_) => {
+                log::warn!(
+                    "Environment variable {}={} could not be parsed, assuming unset",
+                    name,
+                    val
+                );
+                None
+            }
+        },
+        _ => None,
+    }
+}
+
+pub fn get_profiling_level() -> u32 {
+    match get_env_val::<u32>("PROFILING_INFO") {
+        Some(v) if (0..=2).contains(&v) => v,
+        Some(v) => {
+            log::warn!(
+                "Environment variable PROFILING_INFO={} must be 0, 1, or 2; assuming 0",
+                v
+            );
+            0
+        }
+        _ => 0,
     }
 }
 

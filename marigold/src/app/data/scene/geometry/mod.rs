@@ -115,6 +115,7 @@ pub struct SerializedMeshRecord {
 }
 
 // NOT A SYSTEM
+// we use ResMut parameters to preserve change detection
 pub fn serialize_mesh(
     mesh_vertices: &mut ResMut<MeshVertices>,
     mesh_triangles: &mut ResMut<MeshTriangles>,
@@ -122,7 +123,7 @@ pub fn serialize_mesh(
     mesh: UnserializedMesh,
     bvh: BoundingVolumeHierarchy,
 ) -> SerializedMeshRecord {
-    let mesh_metadata = SerializedMeshRecord {
+    let record = SerializedMeshRecord {
         vertex_offset: mesh_vertices.len() as u32,
         bounds_min: mesh.bounds.min,
         triangle_offset: mesh_triangles.len() as u32,
@@ -135,7 +136,7 @@ pub fn serialize_mesh(
     mesh_triangles.extend_from_slice(&mesh.triangles);
     blas_nodes.extend(bvh.into_nodes());
 
-    mesh_metadata
+    record
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -196,6 +197,8 @@ pub fn update_geometry_buffers(
 }
 
 pub fn update_tlas(mut tlas_nodes: ResMut<TlasNodes>, mut meshes: ResMut<Meshes>) {
+    let profiling_level = util::get_profiling_level();
+
     if meshes.is_changed() {
         log::info!("building TLAS over {} meshes", meshes.len());
 
@@ -206,8 +209,12 @@ pub fn update_tlas(mut tlas_nodes: ResMut<TlasNodes>, mut meshes: ResMut<Meshes>
             name: "tlas",
             bounds: None,
             max_depth: TLAS_MAX_DEPTH,
-            profiling_info: util::get_runtime_flag("PROFILING_INFO"),
-            profiling_info_directory: Some(&util::get_asset_root().join("bvh_debug")),
+            profiling_info: profiling_level != 0,
+            profiling_info_directory: if profiling_level == 2 {
+                Some(&util::get_asset_root().join("bvh_debug"))
+            } else {
+                None
+            },
         };
 
         let bvh = BoundingVolumeHierarchy::new::<_, _, 1, 1>(meshes, &[], settings);

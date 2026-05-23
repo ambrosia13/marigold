@@ -536,9 +536,10 @@ impl BvhNode {
         height: Arc<AtomicU32>,
         max_depth: u32,
     ) {
-        // if we have less than half the min objects per leaf, a split would result in one of the
-        // children having less than the min objects per leaf, so refuse another split
-        // however, only perform this check if we are within the max objects per leaf
+        // if we have less than double the min objects per leaf, there's no way for the
+        // split to result in both halves having at least the min objects per leaf, so refuse
+        // however, only perform this check if we are within the max objects per leaf to prioritize
+        // the max constraint over the min constraint
         if depth == max_depth || (self.len <= MAX_LEAF_OBJECTS && self.len < MIN_LEAF_OBJECTS * 2) {
             return;
         }
@@ -779,6 +780,12 @@ Construction time: {} seconds
                 stddev_leaf_object_count,
                 construction_time
             );
+
+            // if feasible {
+            //     // additional assertions to make sure we have exact stats with a feasible bvh configuration
+            //     assert!(min_leaf_object_count == MIN_LEAF_OBJECTS);
+            //     assert!(max_leaf_object_count == MAX_LEAF_OBJECTS);
+            // }
 
             let info = BvhProfilingInfo {
                 name: settings.name,

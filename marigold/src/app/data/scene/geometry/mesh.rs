@@ -38,6 +38,8 @@ pub fn load_all_mesh_assets(
     mut meshes: ResMut<Meshes>,
     mut blases: ResMut<BlasNodes>,
 ) {
+    let profiling_level = util::get_profiling_level();
+
     let mesh_dir_path = util::get_asset_path("meshes");
 
     let num_initial_meshes = meshes.len();
@@ -65,8 +67,12 @@ pub fn load_all_mesh_assets(
                     name: &format!("{}_{}", mesh_name_str, index),
                     bounds: Some(mesh.bounds),
                     max_depth: BLAS_MAX_DEPTH,
-                    profiling_info: util::get_runtime_flag("PROFILING_INFO"),
-                    profiling_info_directory: Some(&util::get_asset_root().join("bvh_debug")),
+                    profiling_info: profiling_level != 0,
+                    profiling_info_directory: if profiling_level == 2 {
+                        Some(&util::get_asset_root().join("bvh_debug"))
+                    } else {
+                        None
+                    },
                 };
 
                 BoundingVolumeHierarchy::new::<_, _, 1, 1>(
