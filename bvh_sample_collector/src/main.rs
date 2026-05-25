@@ -1,7 +1,7 @@
 use std::{error::Error, path::Path, sync::atomic::AtomicU32};
 
 use bvh::{BoundingVolumeHierarchy, BvhSettings};
-use gltf_loading::GltfScene;
+use gltf_loading::GltfScenes;
 use rayon::iter::{
     IndexedParallelIterator, IntoParallelIterator, IntoParallelRefMutIterator, ParallelIterator,
 };
@@ -26,8 +26,8 @@ fn main() -> Result<(), Box<dyn Error>> {
 
         println!("loading gltf scene {}...", mesh_name);
 
-        let gltf = GltfScene::load(gltf_path);
-        let (meshes, _) = gltf.into_meshes_and_instances();
+        let gltf = GltfScenes::load(gltf_path);
+        let (meshes, _) = gltf.into_meshes_and_scenes();
 
         println!("finished loading gltf scene {}!", mesh_name);
 

@@ -6,7 +6,7 @@ use bevy_ecs::{
 };
 use bvh::{BoundingVolumeHierarchy, BvhSettings};
 use glam::{Vec3A, Vec4};
-use gltf_loading::GltfScene;
+use gltf_loading::GltfScenes;
 use mesh_interface::{MeshMetadata, MeshRecord};
 use rayon::iter::{IndexedParallelIterator, IntoParallelRefMutIterator, ParallelIterator};
 
@@ -55,8 +55,8 @@ pub fn load_all_mesh_assets(
         let path = Path::new("meshes").join(&mesh_dir_name);
         let path = util::get_asset_path(path);
 
-        let gltf_scene = GltfScene::load(path);
-        let (mut unserialized_meshes, instances) = gltf_scene.into_meshes_and_instances();
+        let gltf_scenes = GltfScenes::load(path);
+        let (mut unserialized_meshes, scenes) = gltf_scenes.into_meshes_and_scenes();
 
         // build bvhs in parallel
         let bvhs: Vec<_> = unserialized_meshes
@@ -115,8 +115,9 @@ pub fn load_all_mesh_assets(
             })
             .collect();
 
-        // spawn each instance in the gltf scene
-        for instance in instances {
+        // load the first gltf scene for now, and spawn each instance in the gltf scene
+        let first_scene_instances = &scenes[0];
+        for instance in first_scene_instances {
             let record = &mesh_records[instance.mesh_index];
 
             // we need to transform the gltf local space AABB into a world space AABB for the TLAS

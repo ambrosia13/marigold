@@ -12,12 +12,12 @@ struct GltfMeshInstance {
     pub mesh_index: (usize, usize),
 }
 
-pub struct GltfScene {
+pub struct GltfScenes {
     pub meshes: HashMap<(usize, usize), UnserializedMesh>,
-    instances: Vec<GltfMeshInstance>,
+    scenes: Vec<Vec<GltfMeshInstance>>,
 }
 
-impl GltfScene {
+impl GltfScenes {
     fn traverse_scene(
         node: gltf::Node<'_>,
         parent_transform: Mat4,
@@ -139,12 +139,17 @@ impl GltfScene {
                     });
             });
 
-        let mut instances = Vec::new();
+        let mut scenes = Vec::new();
 
         for scene in gltf.scenes() {
+            // instances in this scene
+            let mut instances = Vec::new();
+
             for node in scene.nodes() {
                 Self::traverse_scene(node, Mat4::IDENTITY, &mut instances);
             }
+
+            scenes.push(instances);
         }
 
         for (i, mesh) in meshes.iter() {
@@ -158,15 +163,15 @@ impl GltfScene {
         }
 
         log::info!(
-            "Creating {} mesh instances ({} unique meshes)",
-            instances.len(),
+            "Creating {} scenes ({} unique meshes)",
+            scenes.len(),
             meshes.len()
         );
 
-        Self { meshes, instances }
+        Self { meshes, scenes }
     }
 
-    pub fn into_meshes_and_instances(self) -> (Vec<UnserializedMesh>, Vec<MeshInstance>) {
+    pub fn into_meshes_and_scenes(self) -> (Vec<UnserializedMesh>, Vec<Vec<MeshInstance>>) {
         let mut packed_mesh_indices: HashMap<(usize, usize), usize> = HashMap::new();
 
         (
@@ -178,11 +183,16 @@ impl GltfScene {
                     m
                 })
                 .collect(),
-            self.instances
+            self.scenes
                 .into_iter()
-                .map(|i| MeshInstance {
-                    transform: i.transform,
-                    mesh_index: packed_mesh_indices[&i.mesh_index],
+                .map(|scene| {
+                    scene
+                        .into_iter()
+                        .map(|i| MeshInstance {
+                            transform: i.transform,
+                            mesh_index: packed_mesh_indices[&i.mesh_index],
+                        })
+                        .collect::<Vec<_>>()
                 })
                 .collect(),
         )
