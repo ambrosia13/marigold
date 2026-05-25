@@ -113,6 +113,7 @@ impl BoundingVolume {
 
 enum SplitDescriptor {
     Threshold { axis: usize, threshold: f32 },
+    Index { axis: usize, index: usize },
     Exact { index: usize },
 }
 
@@ -336,14 +337,15 @@ impl BvhNode {
         (1..bin_count)
             // .into_par_iter()
             .filter_map(|i| {
-                // threshold is needed later for partitioning, so choose the bin boundary
-                let threshold = i as f32 / bin_count as f32 * centroid_bounds.extent()[axis]
-                    + centroid_bounds.min[axis];
+                // // threshold is needed later for partitioning, so choose the bin boundary
+                // let threshold = i as f32 / bin_count as f32 * centroid_bounds.extent()[axis]
+                //     + centroid_bounds.min[axis];
 
                 // // bias threshold up to deal with fp inconsistencies
                 // let threshold = f32::from_bits(threshold.to_bits() + 1);
 
                 let split = Self::evaluate_binned_split(parent_bounds, &bins, i);
+                let index = split.count_lt as usize; // instead of computing and passing threshold, save index instead
 
                 // refuse a split if too few objects are in each child
                 if split.count_lt < MIN_LEAF_OBJECTS || split.count_gt < MIN_LEAF_OBJECTS {
@@ -352,7 +354,7 @@ impl BvhNode {
 
                 Some(SuccessfulSplit {
                     candidate: split,
-                    desc: SplitDescriptor::Threshold { axis, threshold },
+                    desc: SplitDescriptor::Index { axis, index },
                 })
             })
             .min_by(|split_a, split_b| split_a.cost.total_cmp(&split_b.cost))
@@ -621,7 +623,7 @@ impl BvhNode {
         }
 
         // // never try to split 1 element, because one of the resulting halves will have 0 elements
-        // assert!(list.len() >= 2);
+        assert!(list.len() >= 2);
 
         child_lt.bounds = split.bounds_lt;
         child_gt.bounds = split.bounds_gt;
@@ -634,7 +636,15 @@ impl BvhNode {
             SplitDescriptor::Threshold { axis, threshold } => list
                 .iter_mut()
                 .partition_in_place(|object| object.center(source)[axis] < threshold),
-            SplitDescriptor::Exact { index, .. } => index,
+            SplitDescriptor::Index { axis, index } => {
+                let _ = list.select_nth_unstable_by(index, |a, b| {
+                    a.bounding_volume(source).center()[axis]
+                        .total_cmp(&b.bounding_volume(source).center()[axis])
+                });
+
+                index
+            }
+            SplitDescriptor::Exact { index } => index,
         };
 
         let (list_lt, list_gt) = list.split_at_mut(split_index);
@@ -649,14 +659,16 @@ impl BvhNode {
         assert_eq!(
             child_lt.len,
             actual_lt_len,
-            "was median split used? {}",
-            matches!(split.desc, SplitDescriptor::Exact { .. })
+            "was median split used? {}; was binned? {}",
+            matches!(split.desc, SplitDescriptor::Exact { .. }),
+            matches!(split.desc, SplitDescriptor::Index { .. }),
         );
         assert_eq!(
             child_gt.len,
             actual_gt_len,
-            "was median split used? {}",
-            matches!(split.desc, SplitDescriptor::Exact { .. })
+            "was median split used? {}; was binned? {}",
+            matches!(split.desc, SplitDescriptor::Exact { .. }),
+            matches!(split.desc, SplitDescriptor::Index { .. }),
         );
 
         child_gt.start_index = self.start_index + child_lt.len;
@@ -852,18 +864,18 @@ Construction time: {} seconds
                 construction_time
             );
 
-            // if feasible {
-            //     // additional assertions to make sure we have exact stats with a feasible bvh configuration
-            //     assert!(min_leaf_object_count >= MIN_LEAF_OBJECTS);
-            //     assert!(max_leaf_object_count <= MAX_LEAF_OBJECTS);
-            // }
+            if feasible {
+                // additional assertions to make sure we have exact stats with a feasible bvh configuration
+                assert!(min_leaf_object_count >= MIN_LEAF_OBJECTS);
+                assert!(max_leaf_object_count <= MAX_LEAF_OBJECTS);
+            }
 
-            // // assert that our estimate is correct if our params are such that we can make an exact estimate
-            // // to ensure the estimate is correct, just make sure the initial and final capacities are equal
-            // if MIN_LEAF_OBJECTS == 1 && MAX_LEAF_OBJECTS == 1 {
-            //     let final_node_capacity = nodes.capacity();
-            //     assert_eq!(initial_node_capacity, final_node_capacity);
-            // }
+            // assert that our estimate is correct if our params are such that we can make an exact estimate
+            // to ensure the estimate is correct, just make sure the initial and final capacities are equal
+            if MIN_LEAF_OBJECTS == 1 && MAX_LEAF_OBJECTS == 1 {
+                let final_node_capacity = nodes.capacity();
+                assert_eq!(initial_node_capacity, final_node_capacity);
+            }
 
             let info = BvhProfilingInfo {
                 name: settings.name,
