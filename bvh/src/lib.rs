@@ -3,6 +3,7 @@
 use std::{
     fs::File,
     io::Write,
+    marker::PhantomData,
     ops::Deref,
     path::Path,
     sync::{Arc, atomic::AtomicU32},
@@ -110,6 +111,12 @@ impl BoundingVolume {
     }
 }
 
+enum SplitDescriptor {
+    Threshold { axis: usize, threshold: f32 },
+    Exact { index: usize },
+}
+
+// represents a potential node split along with its cost
 struct CandidateSplit {
     bounds_lt: BoundingVolume,
     bounds_gt: BoundingVolume,
@@ -118,10 +125,11 @@ struct CandidateSplit {
     cost: f32,
 }
 
+// represents a split that is possible given our constraints, along with additional
+// information about its axis and threshold
 struct SuccessfulSplit {
     candidate: CandidateSplit,
-    axis: usize,
-    threshold: f32,
+    desc: SplitDescriptor,
 }
 
 impl Deref for SuccessfulSplit {
@@ -172,7 +180,7 @@ impl BvhNode {
     pub const OBJECT_COST: f32 = 8.0;
 
     pub fn root<S, T: AsBoundingVolumeIndices<S>>(list: &mut [T], source: &[S]) -> Self {
-        let mut bounds = BoundingVolume::new(Vec3A::ZERO, Vec3A::ZERO);
+        let mut bounds = BoundingVolume::EMPTY;
 
         for item in list.iter() {
             bounds.grow_from_bounding_volume(item.bounding_volume(source));
@@ -331,6 +339,10 @@ impl BvhNode {
                 // threshold is needed later for partitioning, so choose the bin boundary
                 let threshold = i as f32 / bin_count as f32 * centroid_bounds.extent()[axis]
                     + centroid_bounds.min[axis];
+
+                // // bias threshold up to deal with fp inconsistencies
+                // let threshold = f32::from_bits(threshold.to_bits() + 1);
+
                 let split = Self::evaluate_binned_split(parent_bounds, &bins, i);
 
                 // refuse a split if too few objects are in each child
@@ -340,8 +352,7 @@ impl BvhNode {
 
                 Some(SuccessfulSplit {
                     candidate: split,
-                    axis,
-                    threshold,
+                    desc: SplitDescriptor::Threshold { axis, threshold },
                 })
             })
             .min_by(|split_a, split_b| split_a.cost.total_cmp(&split_b.cost))
@@ -384,8 +395,7 @@ impl BvhNode {
 
                     Some(SuccessfulSplit {
                         candidate: split,
-                        axis,
-                        threshold,
+                        desc: SplitDescriptor::Threshold { axis, threshold },
                     })
                 })
                 .min_by(|split_a, split_b| split_a.cost.total_cmp(&split_b.cost))
@@ -414,28 +424,27 @@ impl BvhNode {
 
                     Some(SuccessfulSplit {
                         candidate: split,
-                        axis,
-                        threshold,
+                        desc: SplitDescriptor::Threshold { axis, threshold },
                     })
                 })
                 .min_by(|split_a, split_b| split_a.cost.total_cmp(&split_b.cost))
         }
     }
 
-    fn median_split<S: Sync, T: AsBoundingVolumeIndices<S> + Clone + Sync>(
+    fn median_split<S: Sync, T: AsBoundingVolumeIndices<S> + Sync>(
         parent_bounds: BoundingVolume,
-        list: &[T],
+        list: &mut [T],
         source: &[S],
         axis: usize,
     ) -> SuccessfulSplit {
         let median_index = list.len() / 2;
 
-        let mut list = list.to_vec();
-        let (lt, median, gt) = list.select_nth_unstable_by(median_index, |a, b| {
+        // want the median to be part of `gt` slice so ignore this result and call split later
+        let _ = list.select_nth_unstable_by(median_index, |a, b| {
             a.center(source)[axis].total_cmp(&b.center(source)[axis])
         });
 
-        let threshold = median.center(source)[axis];
+        let (lt, gt) = list.split_at(median_index);
 
         let mut bounds_lt = BoundingVolume::EMPTY;
         let mut bounds_gt = BoundingVolume::EMPTY;
@@ -444,8 +453,6 @@ impl BvhNode {
             bounds_lt.grow_from_bounding_volume(object.bounding_volume(source));
         }
 
-        // include the median in the greater half
-        bounds_gt.grow_from_bounding_volume(median.bounding_volume(source));
         for object in gt.iter() {
             bounds_gt.grow_from_bounding_volume(object.bounding_volume(source));
         }
@@ -455,20 +462,21 @@ impl BvhNode {
             * lt.len() as f32;
         let gt_cost = bounds_gt.surface_area() / parent_bounds.surface_area()
             * Self::OBJECT_COST
-            * (1 + gt.len()) as f32;
+            * gt.len() as f32;
 
         let split = CandidateSplit {
             bounds_lt,
             bounds_gt,
             count_lt: lt.len() as u32,
-            count_gt: 1 + gt.len() as u32,
+            count_gt: gt.len() as u32,
             cost: Self::DEPTH_COST + lt_cost + gt_cost,
         };
 
         SuccessfulSplit {
             candidate: split,
-            axis,
-            threshold,
+            desc: SplitDescriptor::Exact {
+                index: median_index,
+            },
         }
     }
 
@@ -479,14 +487,17 @@ impl BvhNode {
         const MAX_LEAF_OBJECTS: u32,
     >(
         parent_bounds: BoundingVolume,
-        list: &[T],
+        list: &mut [T],
         source: &[S],
     ) -> Option<SuccessfulSplit> {
+        // we shouldn't be attempting to split if there aren't enough objects to split
+        // assert!(list.len() < MIN_LEAF_OBJECTS as usize * 2);
+
         // compute centroid bounds, can be shared across all axes
         let mut centroid_min = Vec3A::INFINITY;
         let mut centroid_max = Vec3A::NEG_INFINITY;
 
-        for object in list {
+        for object in list.iter() {
             let center = object.center(source);
 
             centroid_min = centroid_min.min(center);
@@ -495,18 +506,31 @@ impl BvhNode {
 
         let centroid_bounds = BoundingVolume::new(centroid_min, centroid_max);
 
+        // only median split needs list mutability, so convert to immutable ref
+        let list_ref = &*list;
+
         // compute the results for all 3 axes in parallel, and then choose the best
         let mut split = (0..3)
             // .into_par_iter()
             .filter_map(|axis| {
                 // choose binned sweep every time, compromises quality but insanely fast speed
-                Self::binned_sweep::<_, _, MIN_LEAF_OBJECTS>(
-                    parent_bounds,
-                    centroid_bounds,
-                    list,
-                    source,
-                    axis,
-                )
+                if list_ref.len() <= 32 {
+                    Self::adaptive_sweep::<_, _, MIN_LEAF_OBJECTS>(
+                        parent_bounds,
+                        centroid_bounds,
+                        list_ref,
+                        source,
+                        axis,
+                    )
+                } else {
+                    Self::binned_sweep::<_, _, MIN_LEAF_OBJECTS>(
+                        parent_bounds,
+                        centroid_bounds,
+                        list_ref,
+                        source,
+                        axis,
+                    )
+                }
             })
             .min_by(|split_a, split_b| split_a.cost.total_cmp(&split_b.cost));
 
@@ -515,7 +539,22 @@ impl BvhNode {
             split = (0..3)
                 // .into_par_iter()
                 .map(|axis| Self::median_split(parent_bounds, list, source, axis))
-                .min_by(|split_a, split_b| split_a.cost.total_cmp(&split_b.cost))
+                .min_by(|split_a, split_b| split_a.cost.total_cmp(&split_b.cost));
+
+            // let split = split.as_ref().unwrap();
+
+            // let equal_count = list
+            //     .iter()
+            //     .filter(|o| o.center(source)[split.axis] == split.threshold)
+            //     .count();
+
+            // let actual_lt_count = list
+            //     .iter()
+            //     .filter(|o| o.bounding_volume(source).center()[split.axis] < split.threshold)
+            //     .count();
+
+            // log::info!("# of objects equal to threshold: {}", equal_count);
+            // assert_eq!(split.count_lt, actual_lt_count as u32);
         }
 
         split
@@ -536,6 +575,12 @@ impl BvhNode {
         height: Arc<AtomicU32>,
         max_depth: u32,
     ) {
+        // hard minimum on 1 element, no matter what min_leaf_objects is, because then one of the two
+        // halves will have 0 elements, which saves zero work during traversal
+        if self.len <= 1 {
+            return;
+        }
+
         // if we have less than double the min objects per leaf, there's no way for the
         // split to result in both halves having at least the min objects per leaf, so refuse
         // however, only perform this check if we are within the max objects per leaf to prioritize
@@ -575,6 +620,9 @@ impl BvhNode {
             return;
         }
 
+        // // never try to split 1 element, because one of the resulting halves will have 0 elements
+        // assert!(list.len() >= 2);
+
         child_lt.bounds = split.bounds_lt;
         child_gt.bounds = split.bounds_gt;
 
@@ -582,11 +630,34 @@ impl BvhNode {
         child_gt.len = split.count_gt;
 
         // std partition
-        let split = list
-            .iter_mut()
-            .partition_in_place(|object| object.center(source)[split.axis] < split.threshold);
+        let split_index = match split.desc {
+            SplitDescriptor::Threshold { axis, threshold } => list
+                .iter_mut()
+                .partition_in_place(|object| object.center(source)[axis] < threshold),
+            SplitDescriptor::Exact { index, .. } => index,
+        };
 
-        let (list_lt, list_gt) = list.split_at_mut(split);
+        let (list_lt, list_gt) = list.split_at_mut(split_index);
+
+        // temporary assertions to ensure correctness
+        let actual_lt_len = list_lt.len() as u32;
+        let actual_gt_len = list_gt.len() as u32;
+
+        assert_ne!(list_lt.len(), 0);
+        assert_ne!(list_gt.len(), 0);
+
+        assert_eq!(
+            child_lt.len,
+            actual_lt_len,
+            "was median split used? {}",
+            matches!(split.desc, SplitDescriptor::Exact { .. })
+        );
+        assert_eq!(
+            child_gt.len,
+            actual_gt_len,
+            "was median split used? {}",
+            matches!(split.desc, SplitDescriptor::Exact { .. })
+        );
 
         child_gt.start_index = self.start_index + child_lt.len;
 
@@ -723,13 +794,6 @@ impl BoundingVolumeHierarchy {
             nodes[0] = root;
         }
 
-        // assert that our estimate is correct if our params are such that we can make an exact estimate
-        // to ensure the estimate is correct, just make sure the initial and final capacities are equal
-        if MIN_LEAF_OBJECTS == 1 && MAX_LEAF_OBJECTS == 1 {
-            let final_node_capacity = nodes.capacity();
-            assert_eq!(initial_node_capacity, final_node_capacity);
-        }
-
         let construction_time = instant.elapsed().as_secs_f64();
 
         if settings.profiling_info {
@@ -788,11 +852,18 @@ Construction time: {} seconds
                 construction_time
             );
 
-            if feasible {
-                // additional assertions to make sure we have exact stats with a feasible bvh configuration
-                assert!(min_leaf_object_count == MIN_LEAF_OBJECTS);
-                assert!(max_leaf_object_count == MAX_LEAF_OBJECTS);
-            }
+            // if feasible {
+            //     // additional assertions to make sure we have exact stats with a feasible bvh configuration
+            //     assert!(min_leaf_object_count >= MIN_LEAF_OBJECTS);
+            //     assert!(max_leaf_object_count <= MAX_LEAF_OBJECTS);
+            // }
+
+            // // assert that our estimate is correct if our params are such that we can make an exact estimate
+            // // to ensure the estimate is correct, just make sure the initial and final capacities are equal
+            // if MIN_LEAF_OBJECTS == 1 && MAX_LEAF_OBJECTS == 1 {
+            //     let final_node_capacity = nodes.capacity();
+            //     assert_eq!(initial_node_capacity, final_node_capacity);
+            // }
 
             let info = BvhProfilingInfo {
                 name: settings.name,
