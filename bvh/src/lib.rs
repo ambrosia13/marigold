@@ -3,7 +3,6 @@
 use std::{
     fs::File,
     io::Write,
-    marker::PhantomData,
     ops::Deref,
     path::Path,
     sync::{Arc, atomic::AtomicU32},
@@ -213,7 +212,6 @@ impl BvhNode {
 
     fn leaf_cost(&self) -> f32 {
         Self::OBJECT_COST * self.len as f32
-        // Self::NODE_COST + Self::OBJECT_COST * self.bounds.surface_area() * self.len as f32
     }
 
     fn evaluate_binned_split(
@@ -331,19 +329,11 @@ impl BvhNode {
                 .grow_from_bounding_volume(object_bounds);
         }
 
-        // compute all results in parallel then choose the best one
         // iterate from the second to the last bin as the split point
         // safe bc there are at least two bins
+        // compute all results, then choose the best
         (1..bin_count)
-            // .into_par_iter()
             .filter_map(|i| {
-                // // threshold is needed later for partitioning, so choose the bin boundary
-                // let threshold = i as f32 / bin_count as f32 * centroid_bounds.extent()[axis]
-                //     + centroid_bounds.min[axis];
-
-                // // bias threshold up to deal with fp inconsistencies
-                // let threshold = f32::from_bits(threshold.to_bits() + 1);
-
                 let split = Self::evaluate_binned_split(parent_bounds, &bins, i);
                 let index = split.count_lt as usize; // instead of computing and passing threshold, save index instead
 
@@ -374,6 +364,22 @@ impl BvhNode {
     ) -> Option<SuccessfulSplit> {
         let accurate_search_threshold = 8;
 
+        // extract common code into function
+        let evaluate = |threshold| {
+            let split =
+                Self::evaluate_threshold_split(parent_bounds, list, source, axis, threshold);
+
+            // refuse a split if too few objects are in each child
+            if split.count_lt < MIN_LEAF_OBJECTS || split.count_gt < MIN_LEAF_OBJECTS {
+                return None;
+            }
+
+            Some(SuccessfulSplit {
+                candidate: split,
+                desc: SplitDescriptor::Threshold { axis, threshold },
+            })
+        };
+
         if list.len() < accurate_search_threshold {
             // for small amounts of objects, do the most accurate search
             // since the dataset is small, do a sequential search rather than parallel search
@@ -382,23 +388,7 @@ impl BvhNode {
                     let bounds = object.bounding_volume(source);
                     let threshold = bounds.center()[axis];
 
-                    let split = Self::evaluate_threshold_split(
-                        parent_bounds,
-                        list,
-                        source,
-                        axis,
-                        threshold,
-                    );
-
-                    // refuse a split if too few objects are in each child
-                    if split.count_lt < MIN_LEAF_OBJECTS || split.count_gt < MIN_LEAF_OBJECTS {
-                        return None;
-                    }
-
-                    Some(SuccessfulSplit {
-                        candidate: split,
-                        desc: SplitDescriptor::Threshold { axis, threshold },
-                    })
+                    evaluate(threshold)
                 })
                 .min_by(|split_a, split_b| split_a.cost.total_cmp(&split_b.cost))
         } else {
@@ -408,26 +398,10 @@ impl BvhNode {
 
             // since we are using this search for small sizes, do a sequential iteration instead of parallel
             (0..step_count)
-                // .into_par_iter()
                 .filter_map(|i| {
                     let threshold = centroid_bounds.min[axis] + bounds_step * (i as f32 + 0.5);
-                    let split = Self::evaluate_threshold_split(
-                        parent_bounds,
-                        list,
-                        source,
-                        axis,
-                        threshold,
-                    );
 
-                    // refuse a split if too few objects are in each child
-                    if split.count_lt < MIN_LEAF_OBJECTS || split.count_gt < MIN_LEAF_OBJECTS {
-                        return None;
-                    }
-
-                    Some(SuccessfulSplit {
-                        candidate: split,
-                        desc: SplitDescriptor::Threshold { axis, threshold },
-                    })
+                    evaluate(threshold)
                 })
                 .min_by(|split_a, split_b| split_a.cost.total_cmp(&split_b.cost))
         }
@@ -492,9 +466,6 @@ impl BvhNode {
         list: &mut [T],
         source: &[S],
     ) -> Option<SuccessfulSplit> {
-        // we shouldn't be attempting to split if there aren't enough objects to split
-        // assert!(list.len() < MIN_LEAF_OBJECTS as usize * 2);
-
         // compute centroid bounds, can be shared across all axes
         let mut centroid_min = Vec3A::INFINITY;
         let mut centroid_max = Vec3A::NEG_INFINITY;
@@ -513,9 +484,8 @@ impl BvhNode {
 
         // compute the results for all 3 axes in parallel, and then choose the best
         let mut split = (0..3)
-            // .into_par_iter()
             .filter_map(|axis| {
-                // choose binned sweep every time, compromises quality but insanely fast speed
+                // choose adaptive sweep if not too many objects, results in higher quality split
                 if list_ref.len() <= 32 {
                     Self::adaptive_sweep::<_, _, MIN_LEAF_OBJECTS>(
                         parent_bounds,
@@ -539,24 +509,8 @@ impl BvhNode {
         // if no split was found, but there are too many nodes, we can't stop here, so force a median split
         if split.is_none() && list.len() as u32 > MAX_LEAF_OBJECTS {
             split = (0..3)
-                // .into_par_iter()
                 .map(|axis| Self::median_split(parent_bounds, list, source, axis))
                 .min_by(|split_a, split_b| split_a.cost.total_cmp(&split_b.cost));
-
-            // let split = split.as_ref().unwrap();
-
-            // let equal_count = list
-            //     .iter()
-            //     .filter(|o| o.center(source)[split.axis] == split.threshold)
-            //     .count();
-
-            // let actual_lt_count = list
-            //     .iter()
-            //     .filter(|o| o.bounding_volume(source).center()[split.axis] < split.threshold)
-            //     .count();
-
-            // log::info!("# of objects equal to threshold: {}", equal_count);
-            // assert_eq!(split.count_lt, actual_lt_count as u32);
         }
 
         split
@@ -871,7 +825,7 @@ Construction time: {} seconds
             }
 
             // assert that our estimate is correct if our params are such that we can make an exact estimate
-            // to ensure the estimate is correct, just make sure the initial and final capacities are equal
+            // to do this, just make sure the initial and final capacities are equal, meaning we didnt reallocate
             if MIN_LEAF_OBJECTS == 1 && MAX_LEAF_OBJECTS == 1 {
                 let final_node_capacity = nodes.capacity();
                 assert_eq!(initial_node_capacity, final_node_capacity);
