@@ -24,6 +24,12 @@ impl GltfScenes {
         instances: &mut Vec<GltfMeshInstance>,
     ) {
         let local_transform = Mat4::from_cols_array_2d(&node.transform().matrix());
+        let scale = local_transform.to_scale_rotation_translation().0;
+
+        if scale != Vec3::splat(scale.x) {
+            log::warn!("Encountered a non-uniform scale in a gltf transform");
+        }
+
         let global_transform = parent_transform * local_transform;
 
         if let Some(mesh) = node.mesh() {

@@ -66,7 +66,8 @@ void compute(
 
 
     Hit hit = scene.raytraceTlas(ray, traversalInfo);
-    color = float3(traversalInfo) / 500.0;
+    //color = float3(traversalInfo) / 500.0;
+    color = float3(1.0 - exp(-hit.distance * 0.01));
 
     // if (hit.success) {
     //     color = max(float3(0.0), hit.normal);

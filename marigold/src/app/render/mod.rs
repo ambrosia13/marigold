@@ -23,6 +23,10 @@ pub const WGPU_FEATURES: wgpu::Features = wgpu::Features::FLOAT32_FILTERABLE
 pub const WGPU_LIMITS: wgpu::Limits = wgpu::Limits {
     max_immediate_size: 128,
     max_color_attachment_bytes_per_sample: 64,
+    // https://vulkan.gpuinfo.org/displaydevicelimit.php?name=maxStorageBufferRange&platform=all
+    max_storage_buffer_binding_size: 1073741820,
+    // https://vulkan.gpuinfo.org/displaycoreproperty.php?core=1.3&name=maxBufferSize&platform=all
+    max_buffer_size: 2147483648,
     ..wgpu::Limits::defaults()
 };
 
@@ -111,6 +115,8 @@ impl SurfaceState {
                 force_fallback_adapter: false,
             })
             .await?;
+
+        dbg!(adapter.limits());
 
         let (device, queue) = adapter
             .request_device(&wgpu::DeviceDescriptor {

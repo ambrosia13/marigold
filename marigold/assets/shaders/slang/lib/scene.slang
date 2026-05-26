@@ -169,7 +169,10 @@ public struct Scene {
             mul(mesh.inverseTransform, float4(ray.dir, 0.0)).xyz
         );
 
+        // safe to do because in traversal, we only check the distance field, and we always
+        // guard by closestHit.success before accessing
         Hit localClosestHit = closestHit;
+        localClosestHit.distance = closestHit.distance * length(localRay.dir);
 
         uint baseStackSize = payloadStack.size();
         payloadStack.push(blasNodes[mesh.blasRoot].payload());
