@@ -1,3 +1,21 @@
+# Bounding volume hierarchies in marigold
+
+marigold uses a two-level acceleration structure to represent the scene on the gpu. The acceleration structure used is a form of bounding volume hierarchy (BVH).
+
+The top-level acceleration structure (TLAS) is a BVH built over the entire scene. The bottom-level acceleration structures (BLAS) are built over the triangles within a mesh, and there is one BLAS for each mesh in the scene. Although this approach is typically used for animations and fast rebuilds, neither of which apply to marigold, it does provide the benefit of supporting instancing, which allows for larger scenes to fit in GPU memory.
+
+Currently, the bounding volume implementation is a binary BVH using an adapted form of the surface area heuristic (SAH). It is flexible and allows defining an upper and lower bound for the number of objects in a leaf, though it is optimized for exactly 1 object per leaf, since that's the format used to compress the binary BVH into a wide BVH.
+
+In the binary BVH, each node is split according to the following three methods: a binned sweep, a forced median split as fallback, and what I'm calling "adaptive sweep".
+
+- Adaptive sweep checks potential splits along a certain amount of threshold values distributed along the node bounds. It's similar to a full-sweep, which guarantees best SAH quality, but faster since we check at a lower number of intervals. The result is a fairly good quality split without the cost of doing a full sweep. It's inspired by [Sebastian Lague's BVH video](https://youtu.be/C1H4zIiCOaI?si=CtxDX2A2TkkIiuMX) on YouTube.
+- Binned sweep uses binning to greatly minimize the cost of checking a split by sorting objects into discrete bins, and doing cost calculations on those bins rather than the original set of objects
+- Median split is a fallback, chosen if a split is required due to the constraints but neither of the above methods produce valid splits
+
+In all cases, the surface area heuristic is used to choose the split candidate with the lowest cost according to the heuristic.
+
+Wide BVHs are structures with many children per node, as opposed to the binary BVH which has exactly two children per node. A BVH8 implementation is planned, following [Efficient Incoherent Ray Traversal on GPUs Through Compressed Wide BVHs](https://research.nvidia.com/sites/default/files/publications/ylitie2017hpg-paper.pdf) (Ylitie et al.).
+
 # Workspace structure
 
 This project is split into multiple crates in a workspace. The main workspace, `marigold`, contains the main app executable code. All assets and shaders are placed within the marigold workspace member, for simpler asset finding code.
