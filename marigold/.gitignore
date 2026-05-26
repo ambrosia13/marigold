@@ -1,4 +1,5 @@
 assets/disabled
 assets/shaders/target
+assets/meshes
 shader_compile_errors
 bvh_debug
