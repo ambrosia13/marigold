@@ -76,12 +76,14 @@ public struct Scene {
         hit.position = ray.pos + t * ray.dir;
         hit.distance = t;
         // we want to give physically accurate normals even for back faces
-        hit.normal = (v1.normal * w + v2.normal * u + v3.normal * v) * -sign(dirDotNormal);
+        hit.normal = -sign(dirDotNormal) * (v1.normal * w + v2.normal * u + v3.normal * v);
         hit.frontFace = dirDotNormal < 0.0;
-        hit.uv = float2(
-            v1.uvX,
-            v1.uvY
-        );
+
+        float2 uv1 = float2(v1.uvX, v1.uvY);
+        float2 uv2 = float2(v2.uvX, v2.uvY);
+        float2 uv3 = float2(v3.uvX, v3.uvY);
+
+        hit.uv = uv1 * w + uv2 * u + uv3 * v;
 
         return hit;
     }
