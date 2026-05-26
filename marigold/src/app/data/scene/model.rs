@@ -94,6 +94,8 @@ pub fn load_all_models(mut commands: Commands) {
             continue;
         }
 
+        let scene_count = scenes.len();
+
         let model = Model {
             name: model_name_str.to_owned(),
             unserialized_meshes,
@@ -119,8 +121,9 @@ pub fn load_all_models(mut commands: Commands) {
         }
 
         log::info!(
-            "loading model file {} took {} ms",
+            "loading model file {} with {} scenes took {} ms",
             model_name_str,
+            scene_count,
             instant.elapsed().as_secs_f64() * 1000.0
         );
     }
