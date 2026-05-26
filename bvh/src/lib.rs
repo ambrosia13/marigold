@@ -108,6 +108,10 @@ impl BoundingVolume {
     pub fn is_empty(self) -> bool {
         self.empty
     }
+
+    pub fn contains(self, point: Vec3A) -> bool {
+        !self.empty && point.cmpge(self.min).all() && point.cmple(self.max).all()
+    }
 }
 
 enum SplitDescriptor {
@@ -623,6 +627,18 @@ impl BvhNode {
             "was median split used? {}; was binned? {}",
             matches!(split.desc, SplitDescriptor::Exact { .. }),
             matches!(split.desc, SplitDescriptor::Index { .. }),
+        );
+
+        // assert our bounds are correct
+        assert!(
+            list_lt
+                .iter()
+                .all(|obj| child_lt.bounds.contains(obj.center(source)))
+        );
+        assert!(
+            list_gt
+                .iter()
+                .all(|obj| child_gt.bounds.contains(obj.center(source)))
         );
 
         child_gt.start_index = self.start_index + child_lt.len;
