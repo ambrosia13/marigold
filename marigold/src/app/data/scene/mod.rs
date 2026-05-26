@@ -3,6 +3,7 @@ use bevy_ecs::{
     resource::Resource,
     system::{Commands, Res, ResMut},
 };
+use bvh::BoundingVolumeHierarchy;
 use gpu_layout::{AsGpuBytes, Std140Layout};
 use wgpu::util::DeviceExt;
 
@@ -16,6 +17,13 @@ use crate::app::{
 
 pub mod geometry;
 pub mod model;
+
+pub const BVH_MIN_LEAF_NODES: u32 = 1;
+pub const BVH_MAX_LEAF_NODES: u32 = 1;
+
+// type aliases for our use case, which is exactly 1 leaf object
+pub type MarigoldBvh = BoundingVolumeHierarchy<BVH_MIN_LEAF_NODES, BVH_MAX_LEAF_NODES>;
+pub type MarigoldBvhNode = bvh::BvhNode<BVH_MIN_LEAF_NODES, BVH_MAX_LEAF_NODES>;
 
 pub const TLAS_MAX_DEPTH: u32 = 32;
 pub const BLAS_MAX_DEPTH: u32 = 32;

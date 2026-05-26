@@ -51,7 +51,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                 };
 
                 // build the bvh but do nothing with it
-                let _ = BoundingVolumeHierarchy::new::<_, _, 1, 128>(
+                let _ = BoundingVolumeHierarchy::<1, 1>::new(
                     &mut mesh.triangles,
                     &mesh.vertices,
                     settings,

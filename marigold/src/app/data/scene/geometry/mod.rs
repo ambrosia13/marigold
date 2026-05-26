@@ -3,13 +3,16 @@ use bevy_ecs::{
     resource::Resource,
     system::{Commands, Res, ResMut},
 };
-use bvh::{BoundingVolumeHierarchy, BvhNode, BvhSettings};
+use bvh::BvhSettings;
 use derived_deref::{Deref, DerefMut};
 use glam::Vec3A;
 use mesh_interface::{MeshTriangle, MeshVertex, UploadedMesh};
 
 use crate::{
-    app::{data::scene::TLAS_MAX_DEPTH, render::SurfaceState},
+    app::{
+        data::scene::{MarigoldBvh, MarigoldBvhNode, TLAS_MAX_DEPTH},
+        render::SurfaceState,
+    },
     util::{self, buffer::GpuVec},
 };
 
@@ -35,16 +38,16 @@ pub struct UploadedMeshes(Vec<UploadedMesh>);
 pub struct MeshesBuffer(GpuVec<UploadedMesh>);
 
 #[derive(Resource, Deref, DerefMut)]
-pub struct BlasNodes(Vec<BvhNode>);
+pub struct BlasNodes(Vec<MarigoldBvhNode>);
 
 #[derive(Resource, Deref, DerefMut)]
-pub struct BlasNodesBuffer(GpuVec<BvhNode>);
+pub struct BlasNodesBuffer(GpuVec<MarigoldBvhNode>);
 
 #[derive(Resource, Deref, DerefMut)]
-pub struct TlasNodes(Vec<BvhNode>);
+pub struct TlasNodes(Vec<MarigoldBvhNode>);
 
 #[derive(Resource, Deref, DerefMut)]
-pub struct TlasNodesBuffer(GpuVec<BvhNode>);
+pub struct TlasNodesBuffer(GpuVec<MarigoldBvhNode>);
 
 pub fn init_geometry_buffers(mut commands: Commands, surface_state: Res<SurfaceState>) {
     log::info!("initializing scene geometry buffers");
@@ -190,7 +193,7 @@ pub fn update_tlas(mut tlas_nodes: ResMut<TlasNodes>, mut meshes: ResMut<Uploade
             },
         };
 
-        let bvh = BoundingVolumeHierarchy::new::<_, _, 1, 1>(meshes, &[], settings);
+        let bvh = MarigoldBvh::new(meshes, &[], settings);
         **tlas_nodes = bvh.into_nodes();
     }
 }

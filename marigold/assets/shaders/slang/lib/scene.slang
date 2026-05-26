@@ -107,7 +107,7 @@ public struct Scene {
             BvhNodePayload payload = payloadStack.pop();
             traversalInfo.x++; // nodes visited
 
-            uint childIndex = payload.childNode();
+            uint childIndex = payload.childNode;
 
             if (childIndex != 0) {
                 // node has children, push to stack so we can test them next
@@ -134,7 +134,7 @@ public struct Scene {
                 }
             } else {
                 uint startIndex = payload.startIndex;
-                uint length = payload.length();
+                uint length = 1;
 
                 // node has no children, trace BLASes directly
                 for (uint i = startIndex; i < startIndex + length; i++) {
@@ -183,7 +183,7 @@ public struct Scene {
             BvhNodePayload payload = payloadStack.pop();
             traversalInfo.x++; // nodes visited
 
-            uint childIndex = payload.childNode();
+            uint childIndex = payload.childNode;
 
             if (childIndex != 0) {
                 // node has children, push to stack so we can test them next
@@ -221,7 +221,7 @@ public struct Scene {
                 }
             } else {
                 uint startIndex = payload.startIndex;
-                uint length = payload.length();
+                uint length = 1;
 
                 // node has no children, trace triangles directly
                 for (uint i = startIndex; i < startIndex + length; i++) {
@@ -283,32 +283,16 @@ public struct BvhNode {
     public float3 boundsMin;
     public uint startIndex;
     public float3 boundsMax;
-    uint childNodeLower25bits_lengthUpper7bits;
+    uint childNode;
 
     public BvhNodePayload payload() {
-        return BvhNodePayload(startIndex, childNodeLower25bits_lengthUpper7bits);
-    }
-
-    public uint childNode() {
-        return childNodeLower25bits_lengthUpper7bits & ((1 << 25) - 1);
-    }
-
-    public uint length() {
-        return childNodeLower25bits_lengthUpper7bits >> 25;
+        return BvhNodePayload(startIndex, childNode);
     }
 }
 
 public struct BvhNodePayload {
     public uint startIndex;
-    public uint childNodeLower25bits_lengthUpper7bits;
-
-    public uint childNode() {
-        return childNodeLower25bits_lengthUpper7bits & ((1 << 25) - 1);
-    }
-
-    public uint length() {
-        return childNodeLower25bits_lengthUpper7bits >> 25;
-    }
+    public uint childNode;
 }
 
 public BvhHit rayIntersectBoundingVolume(Ray ray, float3 boundsMin, float3 boundsMax) {

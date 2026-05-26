@@ -151,35 +151,73 @@ struct SplitBin {
 }
 
 #[derive(Default, Clone, Copy, Debug)]
-pub struct BvhNode {
+pub struct BvhNode<const MIN_LEAF_OBJECTS: u32, const MAX_LEAF_OBJECTS: u32> {
     pub bounds: BoundingVolume,
     pub start_index: u32,
     pub len: u32,
     pub child_node: u32,
 }
 
-impl AsGpuBytes for BvhNode {
+impl<const MIN_LEAF_OBJECTS: u32, const MAX_LEAF_OBJECTS: u32> AsGpuBytes
+    for BvhNode<MIN_LEAF_OBJECTS, MAX_LEAF_OBJECTS>
+{
     fn as_gpu_bytes<L: gpu_layout::GpuLayout + ?Sized>(&self) -> GpuBytes<'_, L> {
         let mut buf = GpuBytes::empty();
 
-        buf.write(&self.bounds.min);
-        buf.write(&self.start_index);
-        buf.write(&self.bounds.max);
+        if MAX_LEAF_OBJECTS == 1 {
+            // no need to encode length at all, we know leaf count is exactly 1
+            // and leaf node is checked as child_node == 0
+            buf.write(&self.bounds.min);
+            buf.write(&self.start_index);
+            buf.write(&self.bounds.max);
+            buf.write(&self.child_node);
+        } else {
+            buf.write(&self.bounds.min);
+            buf.write(&self.start_index);
+            buf.write(&self.bounds.max);
 
-        if self.child_node == 0 {
-            assert!(self.len < 128);
+            // number of bits required for the length
+            let len_overflow = MAX_LEAF_OBJECTS.next_power_of_two();
+
+            let len_bits = len_overflow.ilog2();
+            let child_node_bits = 32 - len_bits;
+
+            assert!(len_bits < 32);
+
+            if self.child_node == 0 {
+                // make sure the length fits in the bits
+                assert!(self.len < len_overflow);
+            }
+
+            let len_mask = (1 << len_bits) - 1;
+            let child_node_mask = !len_mask;
+
+            let packed = (self.len & len_mask) << child_node_bits;
+            let packed = packed | (self.child_node & child_node_mask);
+
+            buf.write(&packed);
         }
 
-        let packed = (self.len & 0b11111) << 25; // upper 7 bits
-        let packed = packed | (self.child_node & ((1 << 25) - 1)); // lower 25 bits
+        // buf.write(&self.bounds.min);
+        // buf.write(&self.start_index);
+        // buf.write(&self.bounds.max);
 
-        buf.write(&packed);
+        // if self.child_node == 0 {
+        //     assert!(self.len < 128);
+        // }
+
+        // let packed = (self.len & 0b11111) << 25; // upper 5 bits
+        // let packed = packed | (self.child_node & ((1 << 25) - 1)); // lower 27 bits
+
+        // buf.write(&packed);
 
         buf
     }
 }
 
-impl BvhNode {
+impl<const MIN_LEAF_OBJECTS: u32, const MAX_LEAF_OBJECTS: u32>
+    BvhNode<MIN_LEAF_OBJECTS, MAX_LEAF_OBJECTS>
+{
     pub const DEPTH_COST: f32 = 1.0;
     pub const OBJECT_COST: f32 = 8.0;
 
@@ -294,7 +332,7 @@ impl BvhNode {
         }
     }
 
-    fn binned_sweep<S: Sync, T: AsBoundingVolumeIndices<S> + Sync, const MIN_LEAF_OBJECTS: u32>(
+    fn binned_sweep<S: Sync, T: AsBoundingVolumeIndices<S> + Sync>(
         parent_bounds: BoundingVolume,
         centroid_bounds: BoundingVolume,
         list: &[T],
@@ -355,11 +393,7 @@ impl BvhNode {
     }
 
     #[allow(unused)]
-    fn adaptive_sweep<
-        S: Sync,
-        T: AsBoundingVolumeIndices<S> + Sync,
-        const MIN_LEAF_OBJECTS: u32,
-    >(
+    fn adaptive_sweep<S: Sync, T: AsBoundingVolumeIndices<S> + Sync>(
         parent_bounds: BoundingVolume,
         centroid_bounds: BoundingVolume,
         list: &[T],
@@ -460,12 +494,7 @@ impl BvhNode {
         }
     }
 
-    fn select_split<
-        S: Sync,
-        T: AsBoundingVolumeIndices<S> + Clone + Sync,
-        const MIN_LEAF_OBJECTS: u32,
-        const MAX_LEAF_OBJECTS: u32,
-    >(
+    fn select_split<S: Sync, T: AsBoundingVolumeIndices<S> + Clone + Sync>(
         parent_bounds: BoundingVolume,
         list: &mut [T],
         source: &[S],
@@ -491,21 +520,9 @@ impl BvhNode {
             .filter_map(|axis| {
                 // choose adaptive sweep if not too many objects, results in higher quality split
                 if list_ref.len() <= 32 {
-                    Self::adaptive_sweep::<_, _, MIN_LEAF_OBJECTS>(
-                        parent_bounds,
-                        centroid_bounds,
-                        list_ref,
-                        source,
-                        axis,
-                    )
+                    Self::adaptive_sweep(parent_bounds, centroid_bounds, list_ref, source, axis)
                 } else {
-                    Self::binned_sweep::<_, _, MIN_LEAF_OBJECTS>(
-                        parent_bounds,
-                        centroid_bounds,
-                        list_ref,
-                        source,
-                        axis,
-                    )
+                    Self::binned_sweep(parent_bounds, centroid_bounds, list_ref, source, axis)
                 }
             })
             .min_by(|split_a, split_b| split_a.cost.total_cmp(&split_b.cost));
@@ -521,12 +538,7 @@ impl BvhNode {
     }
 
     #[allow(clippy::too_many_arguments)]
-    pub fn split<
-        S: Sync,
-        T: AsBoundingVolumeIndices<S> + Clone + Sync,
-        const MIN_LEAF_OBJECTS: u32,
-        const MAX_LEAF_OBJECTS: u32,
-    >(
+    pub fn split<S: Sync, T: AsBoundingVolumeIndices<S> + Clone + Sync>(
         &mut self,
         list: &mut [T],
         source: &[S],
@@ -565,11 +577,7 @@ impl BvhNode {
             child_node: 0,
         };
 
-        let Some(split) = Self::select_split::<_, _, MIN_LEAF_OBJECTS, MAX_LEAF_OBJECTS>(
-            self.bounds,
-            list,
-            source,
-        ) else {
+        let Some(split) = Self::select_split(self.bounds, list, source) else {
             // log::info!("Refused a split for a node with object count {}", self.len);
             return;
         };
@@ -652,23 +660,8 @@ impl BvhNode {
             height.fetch_max(depth, std::sync::atomic::Ordering::Relaxed);
 
             // split the children of this node
-            child_gt.split::<_, _, MIN_LEAF_OBJECTS, MAX_LEAF_OBJECTS>(
-                list_gt,
-                source,
-                nodes,
-                depth + 1,
-                height.clone(),
-                max_depth,
-            );
-
-            child_lt.split::<_, _, MIN_LEAF_OBJECTS, MAX_LEAF_OBJECTS>(
-                list_lt,
-                source,
-                nodes,
-                depth + 1,
-                height,
-                max_depth,
-            );
+            child_gt.split(list_gt, source, nodes, depth + 1, height.clone(), max_depth);
+            child_lt.split(list_lt, source, nodes, depth + 1, height, max_depth);
 
             nodes[self.child_node as usize] = child_gt;
             nodes[self.child_node as usize + 1] = child_lt;
@@ -699,17 +692,14 @@ struct BvhProfilingInfo<'a> {
     max_depth: u32,
 }
 
-pub struct BoundingVolumeHierarchy {
-    nodes: Vec<BvhNode>,
+pub struct BoundingVolumeHierarchy<const MIN_LEAF_OBJECTS: u32, const MAX_LEAF_OBJECTS: u32> {
+    nodes: Vec<BvhNode<MIN_LEAF_OBJECTS, MAX_LEAF_OBJECTS>>,
 }
 
-impl BoundingVolumeHierarchy {
-    pub fn new<
-        S: Sync,
-        T: AsBoundingVolumeIndices<S> + Clone + Sync,
-        const MIN_LEAF_OBJECTS: u32,
-        const MAX_LEAF_OBJECTS: u32,
-    >(
+impl<const MIN_LEAF_OBJECTS: u32, const MAX_LEAF_OBJECTS: u32>
+    BoundingVolumeHierarchy<MIN_LEAF_OBJECTS, MAX_LEAF_OBJECTS>
+{
+    pub fn new<S: Sync, T: AsBoundingVolumeIndices<S> + Clone + Sync>(
         list: &mut [T],
         source: &[S],
         settings: BvhSettings<'_>,
@@ -765,7 +755,7 @@ impl BoundingVolumeHierarchy {
         let height = Arc::new(AtomicU32::new(0));
 
         if !list.is_empty() {
-            root.split::<_, _, MIN_LEAF_OBJECTS, MAX_LEAF_OBJECTS>(
+            root.split(
                 list,
                 source,
                 &mut nodes,
@@ -891,11 +881,11 @@ Construction time: {} seconds
         Self { nodes }
     }
 
-    pub fn nodes(&self) -> &[BvhNode] {
+    pub fn nodes(&self) -> &[BvhNode<MIN_LEAF_OBJECTS, MAX_LEAF_OBJECTS>] {
         &self.nodes
     }
 
-    pub fn into_nodes(self) -> Vec<BvhNode> {
+    pub fn into_nodes(self) -> Vec<BvhNode<MIN_LEAF_OBJECTS, MAX_LEAF_OBJECTS>> {
         self.nodes
     }
 }

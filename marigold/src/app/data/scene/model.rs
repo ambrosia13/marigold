@@ -8,7 +8,7 @@ use bevy_ecs::{
     resource::Resource,
     system::{Commands, ResMut, Single},
 };
-use bvh::{BoundingVolumeHierarchy, BvhSettings};
+use bvh::BvhSettings;
 use glam::{Vec3A, Vec4};
 use gltf_loading::GltfScenes;
 use mesh_interface::{Scene, UnserializedMesh, UploadedMesh};
@@ -16,7 +16,7 @@ use rayon::iter::{IndexedParallelIterator, IntoParallelRefMutIterator, ParallelI
 
 use crate::{
     app::data::scene::{
-        BLAS_MAX_DEPTH,
+        BLAS_MAX_DEPTH, MarigoldBvh,
         geometry::{BlasNodes, MeshTriangles, MeshVertices, SerializedMesh, UploadedMeshes},
     },
     util,
@@ -47,7 +47,7 @@ pub struct ActiveModel;
 pub struct Model {
     pub name: String,
     pub unserialized_meshes: Vec<UnserializedMesh>,
-    pub bounding_volume_hierarchies: Vec<BoundingVolumeHierarchy>,
+    pub bounding_volume_hierarchies: Vec<MarigoldBvh>,
     pub scenes: Vec<Scene>,
     pub active_scene: usize,
 }
@@ -90,11 +90,7 @@ pub fn load_all_models(mut commands: Commands) {
                     },
                 };
 
-                BoundingVolumeHierarchy::new::<_, _, 1, 1>(
-                    &mut mesh.triangles,
-                    &mesh.vertices,
-                    settings,
-                )
+                MarigoldBvh::new(&mut mesh.triangles, &mesh.vertices, settings)
             })
             .collect();
 
