@@ -138,7 +138,7 @@ where
 
         drop(view);
         self.buffer.unmap();
-        log::info!("buffer {} explicitly unmapped", self.label);
+        // log::info!("buffer {} explicitly unmapped", self.label);
 
         self.uploaded_capacity = capacity;
         self.padding = padding;

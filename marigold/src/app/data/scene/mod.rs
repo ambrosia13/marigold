@@ -4,7 +4,6 @@ use bevy_ecs::{
     system::{Commands, Res, ResMut},
 };
 use gpu_layout::{AsGpuBytes, Std140Layout};
-use mesh_interface::Scene;
 use wgpu::util::DeviceExt;
 
 use crate::app::{

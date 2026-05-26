@@ -17,23 +17,32 @@ use rayon::iter::{IndexedParallelIterator, IntoParallelRefMutIterator, ParallelI
 use crate::{
     app::data::scene::{
         BLAS_MAX_DEPTH,
-        geometry::{
-            BlasNodes, MeshTriangles, MeshVertices, SerializedMesh, UploadedMeshes, serialize_mesh,
-        },
+        geometry::{BlasNodes, MeshTriangles, MeshVertices, SerializedMesh, UploadedMeshes},
     },
     util,
 };
 
-// we keep track of this globally to know what scene is currently in the gpu buffers
+/// A record of the current scene uploaded to the gpu buffers
 #[derive(Resource)]
 pub struct CurrentUploadedScene {
     pub model: Entity,
     pub scene: usize,
 }
 
+/// should be attached to one model to represent it's active. an active model means the user can
+/// choose which scene in the model to load, which by default is the first available scene.
+///
+/// it also means that one scene of this model is uploaded to the gpu (i.e. currently being rendered).
+/// to query which scene is uploaded, use the `active_scene` field of `Model`. you can also use the
+/// `scene` field of the `CurrentUploadedScene` resource, but that's more for renderer bookkeeping to
+/// decide when to reupload.
 #[derive(Component)]
 pub struct ActiveModel;
 
+/// a loaded model. a model being loaded means it's parsed from the model file and is kept in-memory,
+/// as well as the bounding volume hierarchies being constructed for each mesh. however, a model being
+/// loaded does not mean that it's uploaded to the gpu; that information is given by the [`CurrentUploadedScene`]
+/// resource.
 #[derive(Component)]
 pub struct Model {
     pub name: String,
@@ -47,6 +56,7 @@ pub fn load_all_models(mut commands: Commands) {
     let profiling_level = util::get_profiling_level();
     let model_dir_root_path = util::get_asset_path("meshes");
 
+    // we keep track of the first model loaded
     let mut first_model = true;
 
     for entry in std::fs::read_dir(&model_dir_root_path).unwrap() {
@@ -111,11 +121,11 @@ pub fn load_all_models(mut commands: Commands) {
             entity.insert(ActiveModel);
             first_model = false;
 
-            let model_entity = entity.id();
+            let model_entity_id = entity.id();
 
             // to tell teh renderer what to upload initially
             commands.insert_resource(CurrentUploadedScene {
-                model: model_entity,
+                model: model_entity_id,
                 scene: 0,
             });
         }

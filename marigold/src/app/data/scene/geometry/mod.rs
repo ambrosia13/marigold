@@ -6,14 +6,12 @@ use bevy_ecs::{
 use bvh::{BoundingVolumeHierarchy, BvhNode, BvhSettings};
 use derived_deref::{Deref, DerefMut};
 use glam::Vec3A;
-use mesh_interface::{MeshTriangle, MeshVertex, UnserializedMesh, UploadedMesh};
+use mesh_interface::{MeshTriangle, MeshVertex, UploadedMesh};
 
 use crate::{
     app::{data::scene::TLAS_MAX_DEPTH, render::SurfaceState},
     util::{self, buffer::GpuVec},
 };
-
-pub mod mesh;
 
 // the below need to be their own resource structs for change detection
 // e.g. when MeshVertices is changed, update MeshVerticesBuffer
@@ -112,31 +110,6 @@ pub struct SerializedMesh {
     pub bounds_max: Vec3A,
     pub triangle_count: u32,
     pub blas_root: u32,
-}
-
-// NOT A SYSTEM
-// we use ResMut parameters to preserve change detection
-pub fn serialize_mesh(
-    mesh_vertices: &mut ResMut<MeshVertices>,
-    mesh_triangles: &mut ResMut<MeshTriangles>,
-    blas_nodes: &mut ResMut<BlasNodes>,
-    mut mesh: UnserializedMesh,
-    bvh: BoundingVolumeHierarchy,
-) -> SerializedMesh {
-    let record = SerializedMesh {
-        vertex_offset: mesh_vertices.len() as u32,
-        bounds_min: mesh.bounds.min,
-        triangle_offset: mesh_triangles.len() as u32,
-        bounds_max: mesh.bounds.max,
-        triangle_count: mesh.triangles.len() as u32,
-        blas_root: blas_nodes.len() as u32,
-    };
-
-    mesh_vertices.append(&mut mesh.vertices);
-    mesh_triangles.append(&mut mesh.triangles);
-    blas_nodes.append(&mut bvh.into_nodes());
-
-    record
 }
 
 #[allow(clippy::too_many_arguments)]
