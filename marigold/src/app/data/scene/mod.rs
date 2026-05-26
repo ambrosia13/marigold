@@ -4,17 +4,19 @@ use bevy_ecs::{
     system::{Commands, Res, ResMut},
 };
 use gpu_layout::{AsGpuBytes, Std140Layout};
+use mesh_interface::Scene;
 use wgpu::util::DeviceExt;
 
 use crate::app::{
     data::scene::geometry::{
         BlasNodes, BlasNodesBuffer, MeshTriangles, MeshTrianglesBuffer, MeshVertices,
-        MeshVerticesBuffer, Meshes, MeshesBuffer, TlasNodes, TlasNodesBuffer,
+        MeshVerticesBuffer, MeshesBuffer, TlasNodes, TlasNodesBuffer, UploadedMeshes,
     },
     render::SurfaceState,
 };
 
 pub mod geometry;
+pub mod model;
 
 pub const TLAS_MAX_DEPTH: u32 = 32;
 pub const BLAS_MAX_DEPTH: u32 = 32;
@@ -45,7 +47,7 @@ impl SceneBinding {
         mesh_vertices_buffer: Res<MeshVerticesBuffer>,
         mesh_triangles: Res<MeshTriangles>,
         mesh_triangles_buffer: Res<MeshTrianglesBuffer>,
-        meshes: Res<Meshes>,
+        meshes: Res<UploadedMeshes>,
         meshes_buffer: Res<MeshesBuffer>,
         blas_nodes: Res<BlasNodes>,
         blas_nodes_buffer: Res<BlasNodesBuffer>,
@@ -191,7 +193,7 @@ impl SceneBinding {
         mesh_vertices_buffer: Res<MeshVerticesBuffer>,
         mesh_triangles: Res<MeshTriangles>,
         mesh_triangles_buffer: Res<MeshTrianglesBuffer>,
-        meshes: Res<Meshes>,
+        meshes: Res<UploadedMeshes>,
         meshes_buffer: Res<MeshesBuffer>,
         blas_nodes: Res<BlasNodes>,
         blas_nodes_buffer: Res<BlasNodesBuffer>,

@@ -5,23 +5,28 @@ use std::{collections::HashMap, ffi::OsStr, path::Path};
 use bvh::BoundingVolume;
 use glam::{Mat4, Vec3};
 use gltf::{Gltf, mesh::Mode};
-use mesh_interface::{MeshInstance, MeshTriangle, MeshVertex, UnserializedMesh};
+use mesh_interface::{MeshInstance, MeshTriangle, MeshVertex, Scene, UnserializedMesh};
 
-struct GltfMeshInstance {
+struct GltfInstance {
     pub transform: Mat4,
     pub mesh_index: (usize, usize),
 }
 
+pub struct GltfScene {
+    name: String,
+    instances: Vec<GltfInstance>,
+}
+
 pub struct GltfScenes {
     pub meshes: HashMap<(usize, usize), UnserializedMesh>,
-    scenes: Vec<Vec<GltfMeshInstance>>,
+    scenes: Vec<GltfScene>,
 }
 
 impl GltfScenes {
     fn traverse_scene(
         node: gltf::Node<'_>,
         parent_transform: Mat4,
-        instances: &mut Vec<GltfMeshInstance>,
+        instances: &mut Vec<GltfInstance>,
     ) {
         let local_transform = Mat4::from_cols_array_2d(&node.transform().matrix());
         let scale = local_transform.to_scale_rotation_translation().0;
@@ -36,7 +41,7 @@ impl GltfScenes {
             mesh.primitives()
                 .filter(|p| p.mode() == Mode::Triangles)
                 .for_each(|p| {
-                    instances.push(GltfMeshInstance {
+                    instances.push(GltfInstance {
                         transform: global_transform,
                         mesh_index: (mesh.index(), p.index()),
                     })
@@ -147,7 +152,12 @@ impl GltfScenes {
 
         let mut scenes = Vec::new();
 
-        for scene in gltf.scenes() {
+        for (scene_index, scene) in gltf.scenes().enumerate() {
+            let name = scene
+                .name()
+                .map(|s| s.to_owned())
+                .unwrap_or(format!("unnamed scene #{}", scene_index));
+
             // instances in this scene
             let mut instances = Vec::new();
 
@@ -155,7 +165,7 @@ impl GltfScenes {
                 Self::traverse_scene(node, Mat4::IDENTITY, &mut instances);
             }
 
-            scenes.push(instances);
+            scenes.push(GltfScene { name, instances });
         }
 
         for (i, mesh) in meshes.iter() {
@@ -177,7 +187,7 @@ impl GltfScenes {
         Self { meshes, scenes }
     }
 
-    pub fn into_meshes_and_scenes(self) -> (Vec<UnserializedMesh>, Vec<Vec<MeshInstance>>) {
+    pub fn into_meshes_and_scenes(self) -> (Vec<UnserializedMesh>, Vec<Scene>) {
         let mut packed_mesh_indices: HashMap<(usize, usize), usize> = HashMap::new();
 
         (
@@ -192,13 +202,19 @@ impl GltfScenes {
             self.scenes
                 .into_iter()
                 .map(|scene| {
-                    scene
+                    let instances = scene
+                        .instances
                         .into_iter()
                         .map(|i| MeshInstance {
                             transform: i.transform,
                             mesh_index: packed_mesh_indices[&i.mesh_index],
                         })
-                        .collect::<Vec<_>>()
+                        .collect();
+
+                    Scene {
+                        name: scene.name,
+                        instances,
+                    }
                 })
                 .collect(),
         )

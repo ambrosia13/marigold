@@ -139,8 +139,7 @@ impl Default for Schedules {
                     atmosphere::AtmosphereParams::init,
                     (
                         scene::geometry::init_geometry_buffers,
-                        scene::geometry::mesh::LoadedMeshes::init,
-                        scene::geometry::mesh::load_all_mesh_assets,
+                        scene::model::load_all_models,
                     )
                         .chain(),
                 ),
@@ -176,8 +175,14 @@ impl Default for Schedules {
             input::handle_keyboard_input_event,
             input::handle_mouse_input_event,
             camera::Camera::update,
-            scene::geometry::update_geometry_buffers,
-            scene::geometry::update_tlas,
+            (
+                scene::model::upload_current_scene,
+                (
+                    scene::geometry::update_geometry_buffers,
+                    scene::geometry::update_tlas,
+                ),
+            )
+                .chain(),
         ));
 
         schedules.on_redraw_render.add_systems(

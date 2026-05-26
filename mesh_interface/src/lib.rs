@@ -37,6 +37,11 @@ pub struct UnserializedMesh {
     pub bounds: BoundingVolume,
 }
 
+pub struct Scene {
+    pub name: String,
+    pub instances: Vec<MeshInstance>,
+}
+
 pub struct MeshInstance {
     pub transform: Mat4,
     pub mesh_index: usize,
@@ -49,7 +54,7 @@ impl AsBoundingVolume for UnserializedMesh {
 }
 
 #[derive(Default, Debug, Clone)]
-pub struct MeshMetadata {
+pub struct UploadedMesh {
     pub bounds_min: Vec3A,
     pub vertex_offset: u32,
     pub bounds_max: Vec3A,
@@ -59,7 +64,7 @@ pub struct MeshMetadata {
     pub blas_root: u32,
 }
 
-impl AsGpuBytes for MeshMetadata {
+impl AsGpuBytes for UploadedMesh {
     fn as_gpu_bytes<L: gpu_layout::GpuLayout + ?Sized>(&self) -> GpuBytes<'_, L> {
         let mut buf = GpuBytes::empty();
 
@@ -79,7 +84,7 @@ impl AsGpuBytes for MeshMetadata {
     }
 }
 
-impl AsBoundingVolume for MeshMetadata {
+impl AsBoundingVolume for UploadedMesh {
     fn bounding_volume(&self) -> BoundingVolume {
         BoundingVolume::new(self.bounds_min, self.bounds_max)
     }

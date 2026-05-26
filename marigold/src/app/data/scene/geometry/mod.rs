@@ -6,7 +6,7 @@ use bevy_ecs::{
 use bvh::{BoundingVolumeHierarchy, BvhNode, BvhSettings};
 use derived_deref::{Deref, DerefMut};
 use glam::Vec3A;
-use mesh_interface::{MeshMetadata, MeshTriangle, MeshVertex, UnserializedMesh};
+use mesh_interface::{MeshTriangle, MeshVertex, UnserializedMesh, UploadedMesh};
 
 use crate::{
     app::{data::scene::TLAS_MAX_DEPTH, render::SurfaceState},
@@ -31,10 +31,10 @@ pub struct MeshTriangles(Vec<MeshTriangle>);
 pub struct MeshTrianglesBuffer(GpuVec<MeshTriangle>);
 
 #[derive(Resource, Deref, DerefMut)]
-pub struct Meshes(Vec<MeshMetadata>);
+pub struct UploadedMeshes(Vec<UploadedMesh>);
 
 #[derive(Resource, Deref, DerefMut)]
-pub struct MeshesBuffer(GpuVec<MeshMetadata>);
+pub struct MeshesBuffer(GpuVec<UploadedMesh>);
 
 #[derive(Resource, Deref, DerefMut)]
 pub struct BlasNodes(Vec<BvhNode>);
@@ -69,7 +69,7 @@ pub fn init_geometry_buffers(mut commands: Commands, surface_state: Res<SurfaceS
         wgpu::BufferUsages::empty(),
     ));
 
-    let meshes = Meshes(Vec::new());
+    let meshes = UploadedMeshes(Vec::new());
     let meshes_buffer = MeshesBuffer(GpuVec::new(
         gpu,
         "meshes_buffer",
@@ -105,13 +105,13 @@ pub fn init_geometry_buffers(mut commands: Commands, surface_state: Res<SurfaceS
     commands.insert_resource(tlas_nodes_buffer);
 }
 
-pub struct SerializedMeshRecord {
-    vertex_offset: u32,
-    bounds_min: Vec3A,
-    triangle_offset: u32,
-    bounds_max: Vec3A,
-    triangle_count: u32,
-    blas_root: u32,
+pub struct SerializedMesh {
+    pub vertex_offset: u32,
+    pub bounds_min: Vec3A,
+    pub triangle_offset: u32,
+    pub bounds_max: Vec3A,
+    pub triangle_count: u32,
+    pub blas_root: u32,
 }
 
 // NOT A SYSTEM
@@ -120,10 +120,10 @@ pub fn serialize_mesh(
     mesh_vertices: &mut ResMut<MeshVertices>,
     mesh_triangles: &mut ResMut<MeshTriangles>,
     blas_nodes: &mut ResMut<BlasNodes>,
-    mesh: UnserializedMesh,
+    mut mesh: UnserializedMesh,
     bvh: BoundingVolumeHierarchy,
-) -> SerializedMeshRecord {
-    let record = SerializedMeshRecord {
+) -> SerializedMesh {
+    let record = SerializedMesh {
         vertex_offset: mesh_vertices.len() as u32,
         bounds_min: mesh.bounds.min,
         triangle_offset: mesh_triangles.len() as u32,
@@ -132,9 +132,9 @@ pub fn serialize_mesh(
         blas_root: blas_nodes.len() as u32,
     };
 
-    mesh_vertices.extend_from_slice(&mesh.vertices);
-    mesh_triangles.extend_from_slice(&mesh.triangles);
-    blas_nodes.extend(bvh.into_nodes());
+    mesh_vertices.append(&mut mesh.vertices);
+    mesh_triangles.append(&mut mesh.triangles);
+    blas_nodes.append(&mut bvh.into_nodes());
 
     record
 }
@@ -145,7 +145,7 @@ pub fn update_geometry_buffers(
     mut mesh_vertices_buffer: ResMut<MeshVerticesBuffer>,
     mesh_triangles: Res<MeshTriangles>,
     mut mesh_triangles_buffer: ResMut<MeshTrianglesBuffer>,
-    meshes: Res<Meshes>,
+    meshes: Res<UploadedMeshes>,
     mut meshes_buffer: ResMut<MeshesBuffer>,
     blas_nodes: Res<BlasNodes>,
     mut blas_nodes_buffer: ResMut<BlasNodesBuffer>,
@@ -196,7 +196,7 @@ pub fn update_geometry_buffers(
     }
 }
 
-pub fn update_tlas(mut tlas_nodes: ResMut<TlasNodes>, mut meshes: ResMut<Meshes>) {
+pub fn update_tlas(mut tlas_nodes: ResMut<TlasNodes>, mut meshes: ResMut<UploadedMeshes>) {
     let profiling_level = util::get_profiling_level();
 
     if meshes.is_changed() {
