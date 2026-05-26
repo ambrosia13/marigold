@@ -24,13 +24,11 @@ public struct Stack<T, let N: uint> {
 
     [mutating]
     public void push(T value) {
-        values[length] = value;
-        length += 1;
+        values[length++] = value;
     }
 
     [mutating]
     public T pop() {
-        length -= 1;
-        return values[length];
+        return values[--length];
     }
 }
