@@ -2,7 +2,8 @@ use std::ops::IndexMut;
 
 use bevy_ecs::{
     message::MessageWriter,
-    system::{Local, NonSend, Res, ResMut},
+    query::Has,
+    system::{Local, NonSend, Query, Res, ResMut},
 };
 use egui::{DragValue, Ui};
 use egui_plot::{HLine, Legend, Line, Plot, PlotPoints};
@@ -13,6 +14,7 @@ use crate::{
             atmosphere::AtmosphereParams,
             camera::Camera,
             profile::{self, FpsCounter, GeometryPassFrametimes},
+            scene::model::{ActiveModel, Model},
         },
         messages::ExitMessage,
         render::SurfaceState,
@@ -186,7 +188,7 @@ pub fn atmosphere_menu(
     mut automatically_apply_changes: Local<bool>,
     mut atmosphere_params: ResMut<AtmosphereParams>,
 ) {
-    egui::Window::new("Atmosphere Settings")        
+    egui::Window::new("Atmosphere Settings")
         .default_open(false)
         .scroll([false, true])
         .show(egui_render_state.context(), |ui| {
@@ -342,4 +344,48 @@ pub fn atmosphere_menu(
                 *atmosphere_params = local_params.clone();
             }
         });
+}
+
+pub fn model_menu(
+    egui_render_state: NonSend<EguiRenderState>,
+    models: Query<(&Model, Has<ActiveModel>)>,
+) {
+    struct ModelInfo {
+        num_scenes: usize,
+        num_meshes: usize,
+        active: bool,
+    }
+
+    // we need to sort the models to ensure a consistent order
+    let mut models: Vec<(&Model, ModelInfo)> = models
+        .iter()
+        .map(|(model, active)| {
+            let num_scenes = model.scenes.len();
+            let num_meshes = model.unserialized_meshes.len();
+
+            (
+                model,
+                ModelInfo {
+                    num_scenes,
+                    num_meshes,
+                    active,
+                },
+            )
+        })
+        .collect();
+    models.sort_by_key(|(m, _)| &m.name); // for now, assume model names are unique, for simplicty
+
+    egui::Window::new("Loaded Models").show(egui_render_state.context(), |ui| {
+        for (model, info) in &models {
+            let text = format!(
+                "'{}' with {} scenes and {} meshes ({})",
+                model.name,
+                info.num_scenes,
+                info.num_meshes,
+                if info.active { "active" } else { "inactive" }
+            );
+
+            ui.label(text);
+        }
+    });
 }

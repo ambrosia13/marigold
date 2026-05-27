@@ -78,18 +78,13 @@ void compute(
 
 
 
+    // debug view
     Hit hit = scene.raytraceTlas(ray, traversalInfo);
     //color = float3(traversalInfo) / 500.0;
     //color = float3(1.0 - exp(-hit.distance * 0.01));
     color = select(hit.success, hit.normal, float3(0.0));
 
-    // if (hit.success) {
-    //     color = max(float3(0.0), hit.normal);
-    // } else {
-    //     color = float3(traversalInfo) / 500.0;
-    // }
-
-
+    // path tracing
     // float3 radiance = float3(0.0);
     // float3 throughput = float3(1.0);
 

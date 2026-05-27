@@ -218,6 +218,7 @@ impl Default for Schedules {
                 menu::controls_menu,
                 menu::camera_menu,
                 menu::atmosphere_menu,
+                menu::model_menu,
             )
                 .chain(),
         );
