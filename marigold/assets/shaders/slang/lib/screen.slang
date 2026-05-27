@@ -1,13 +1,24 @@
 module screen;
 
+public static const float2 TAA_OFFSETS[8] = {
+    float2( 0.125, -0.375),
+    float2(-0.125,  0.375),
+    float2( 0.625,  0.125),
+    float2( 0.375, -0.625),
+    float2(-0.625,  0.625),
+    float2(-0.875, -0.125),
+    float2( 0.375, -0.875),
+    float2( 0.875,  0.875)
+};
+
 public struct Screen {
     public ConstantBuffer<Camera> camera;
     public ConstantBuffer<View> view;
 
     public bool shouldAccumulate() {
-        return 
+        return
             all(this.camera.position == this.camera.previousPosition) &&
-            all(this.camera.view == this.camera.previousView) && 
+            all(this.camera.view == this.camera.previousView) &&
             all(this.camera.projectionMatrix[0] == this.camera.previousProjectionMatrix[0]);
     }
 }

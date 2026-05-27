@@ -47,7 +47,10 @@ void compute(
     uint frameOffset = screen.view.width * screen.view.height * screen.view.frameCount;
     Random random = Random(pixelId + frameOffset);
 
-    float2 texcoord = float2(globalInvocationId.xy) / float2(screen.view.width, screen.view.height);
+    bool shouldAccumulate = screen.shouldAccumulate();
+    float2 pixelCoord = float2(globalInvocationId.xy) + TAA_OFFSETS[screen.view.frameCount % 8] * float(shouldAccumulate);
+    float2 texcoord = pixelCoord / float2(screen.view.width, screen.view.height);
+
     float3 viewDir = screen.camera.viewDir(texcoord);
 
     Ray ray = Ray(screen.camera.position, viewDir);

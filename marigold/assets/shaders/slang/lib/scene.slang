@@ -133,15 +133,7 @@ public struct Scene {
                     payloadStack.push(childB.payload());
                 }
             } else {
-                uint startIndex = payload.startIndex;
-                uint length = 1;
-
-                // node has no children, trace BLASes directly
-                for (uint i = startIndex; i < startIndex + length; i++) {
-                    // raytraceBlas modifies closestHit and also modifies payloadStack
-                    raytraceBlas(ray, closestHit, i, payloadStack, traversalInfo);
-                    // traversalInfo.z++; // triangle intersection tests
-                }
+                raytraceBlas(ray, closestHit, payload.objectIndex, payloadStack, traversalInfo);
             }
         }
 
@@ -202,16 +194,6 @@ public struct Scene {
                 bool pushChildA = childAHit.success && childAHit.distance < closestHitDistance;
                 bool pushChildB = childBHit.success && childBHit.distance < closestHitDistance;
 
-                // 1
-                // if (pushChildA && pushChildB) {
-                //     payloadStack.push(select(childAHit.distance < childBHit.distance, payloadB, payloadA));
-                //     payloadStack.push(select(childAHit.distance < childBHit.distance, payloadA, payloadB));
-                // } else if (pushChildA) {
-                //     payloadStack.push(payloadA);
-                // } else if (pushChildB) {
-                //     payloadStack.push(payloadB);
-                // }
-
                 // 2
                 if (pushChildA && pushChildB) {
                     payloadStack.push(select(childAHit.distance < childBHit.distance, payloadB, payloadA));
@@ -220,16 +202,11 @@ public struct Scene {
                     payloadStack.push(select(pushChildA, payloadA, payloadB));
                 }
             } else {
-                uint startIndex = payload.startIndex;
-                uint length = 1;
+                Hit hit =
+                    rayIntersectTriangle(localRay, mesh.vertexOffset, mesh.triangleOffset + payload.objectIndex);
+                localClosestHit = Hit.merge(localClosestHit, hit);
 
-                // node has no children, trace triangles directly
-                for (uint i = startIndex; i < startIndex + length; i++) {
-                    Hit hit = rayIntersectTriangle(localRay, mesh.vertexOffset, mesh.triangleOffset + i);
-                    localClosestHit = Hit.merge(localClosestHit, hit);
-
-                    traversalInfo.z++; // triangle intersection tests
-                }
+                traversalInfo.z++; // triangle intersection tests
             }
         }
 
@@ -281,17 +258,17 @@ public struct BvhHit {
 
 public struct BvhNode {
     public float3 boundsMin;
-    public uint startIndex;
+    public uint objectIndex;
     public float3 boundsMax;
     uint childNode;
 
     public BvhNodePayload payload() {
-        return BvhNodePayload(startIndex, childNode);
+        return BvhNodePayload(objectIndex, childNode);
     }
 }
 
 public struct BvhNodePayload {
-    public uint startIndex;
+    public uint objectIndex;
     public uint childNode;
 }
 
