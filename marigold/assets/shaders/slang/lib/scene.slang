@@ -111,26 +111,26 @@ public struct Scene {
 
             if (childIndex != 0) {
                 // node has children, push to stack so we can test them next
-                uint childAIndex = childIndex;
-                uint childBIndex = childAIndex + 1;
+                BvhNode childA = tlasNodes[childIndex];
+                BvhNode childB = tlasNodes[childIndex + 1];
 
-                BvhNode childA = tlasNodes[childAIndex];
-                BvhNode childB = tlasNodes[childBIndex];
+                float closestHitDistance = select(closestHit.success, closestHit.distance, float.maxValue);
 
                 BvhHit childAHit = rayIntersectBoundingVolume(ray, childA.boundsMin, childA.boundsMax);
                 BvhHit childBHit = rayIntersectBoundingVolume(ray, childB.boundsMin, childB.boundsMax);
                 traversalInfo.y += 2;
 
-                bool pushChildA = childAHit.success && !(closestHit.success && closestHit.distance < childAHit.distance);
-                bool pushChildB = childBHit.success && !(closestHit.success && closestHit.distance < childBHit.distance);
+                BvhNodePayload payloadA = childA.payload();
+                BvhNodePayload payloadB = childB.payload();
+
+                bool pushChildA = childAHit.success && childAHit.distance < closestHitDistance;
+                bool pushChildB = childBHit.success && childBHit.distance < closestHitDistance;
 
                 if (pushChildA && pushChildB) {
-                    payloadStack.push(select(childAHit.distance < childBHit.distance, childB.payload(), childA.payload()));
-                    payloadStack.push(select(childAHit.distance < childBHit.distance, childA.payload(), childB.payload()));
-                } else if (pushChildA) {
-                    payloadStack.push(childA.payload());
-                } else if (pushChildB) {
-                    payloadStack.push(childB.payload());
+                    payloadStack.push(select(childAHit.distance < childBHit.distance, payloadB, payloadA));
+                    payloadStack.push(select(childAHit.distance < childBHit.distance, payloadA, payloadB));
+                } else if (pushChildA || pushChildB) {
+                    payloadStack.push(select(pushChildA, payloadA, payloadB));
                 }
             } else {
                 raytraceBlas(ray, closestHit, payload.objectIndex, payloadStack, traversalInfo);
@@ -184,17 +184,16 @@ public struct Scene {
 
                 float closestHitDistance = select(localClosestHit.success, localClosestHit.distance, float.maxValue);
 
-                BvhNodePayload payloadA = childA.payload();
-                BvhNodePayload payloadB = childB.payload();
-
                 BvhHit childAHit = rayIntersectBoundingVolume(localRay, childA.boundsMin, childA.boundsMax);
                 BvhHit childBHit = rayIntersectBoundingVolume(localRay, childB.boundsMin, childB.boundsMax);
                 traversalInfo.y += 2;
 
+                BvhNodePayload payloadA = childA.payload();
+                BvhNodePayload payloadB = childB.payload();
+
                 bool pushChildA = childAHit.success && childAHit.distance < closestHitDistance;
                 bool pushChildB = childBHit.success && childBHit.distance < closestHitDistance;
 
-                // 2
                 if (pushChildA && pushChildB) {
                     payloadStack.push(select(childAHit.distance < childBHit.distance, payloadB, payloadA));
                     payloadStack.push(select(childAHit.distance < childBHit.distance, payloadA, payloadB));
@@ -211,6 +210,9 @@ public struct Scene {
         }
 
         // transform local hit back to world space so we can merge with TLAS result
+        // float localScale = length(localRay.dir);
+        // localClosestHit.distance /= localScale;
+
         localClosestHit.position = ray.pos + ray.dir * localClosestHit.distance;
         localClosestHit.normal = normalize(mul(localClosestHit.normal, float3x3(mesh.inverseTransform)));
 
@@ -265,6 +267,25 @@ public struct BvhNode {
     public BvhNodePayload payload() {
         return BvhNodePayload(objectIndex, childNode);
     }
+
+    public float rayDistance(Ray ray) {
+        float3 t_min = (boundsMin - ray.pos) * ray.invDir;
+        float3 t_max = (boundsMax - ray.pos) * ray.invDir;
+
+        float3 t1 = min(t_min, t_max);
+        float3 t2 = max(t_min, t_max);
+
+        float t_near = max3(t1.x, t1.y, t1.z);
+        float t_far = min3(t2.x, t2.y, t2.z);
+
+        return select(
+            t_near <= t_far && t_far >= 0.0,
+            // intersection distance
+            select(t_near < 0.0, t_far, t_near),
+            // no intersection
+            -1.0
+        );
+    }
 }
 
 public struct BvhNodePayload {
@@ -283,12 +304,6 @@ public BvhHit rayIntersectBoundingVolume(Ray ray, float3 boundsMin, float3 bound
     float t_far = min(min(t2.x, t2.y), t2.z);
 
     bool front_face = t_near == 0.0;
-
-    // if (front_face) { // ray inside box
-    //     return BvhHit(true, t_far);
-    // } else {
-    //     return BvhHit(t_far >= t_near && t_far > 0.0, t_near);
-    // }
 
     //            inside box    outside box
     return BvhHit(front_face || t_far >= t_near && t_far > 0.0, select(front_face, t_far, t_near));

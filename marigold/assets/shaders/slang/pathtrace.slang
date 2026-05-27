@@ -45,10 +45,20 @@ void compute(
     // uint pixelId = groupId.x + groupId.y * screen.view.width / 8;
     uint pixelId = globalInvocationId.x + globalInvocationId.y * screen.view.width;
     uint frameOffset = screen.view.width * screen.view.height * screen.view.frameCount;
+
     Random random = Random(pixelId + frameOffset);
+    Random staticRandom = Random(screen.view.frameCount);
 
     bool shouldAccumulate = screen.shouldAccumulate();
-    float2 pixelCoord = float2(globalInvocationId.xy) + TAA_OFFSETS[screen.view.frameCount % 8] * float(shouldAccumulate);
+
+    // we want the jitter to range from -0.5 to 0.5, so it captures all subpixel details when combined
+    // with the jitter of surrounding pixels
+    float2 jitter = float2(
+        staticRandom.getFloat() - 0.5,
+        staticRandom.getFloat() - 0.5
+    );
+
+    float2 pixelCoord = float2(globalInvocationId.xy) + jitter * float(shouldAccumulate);
     float2 texcoord = pixelCoord / float2(screen.view.width, screen.view.height);
 
     float3 viewDir = screen.camera.viewDir(texcoord);
