@@ -17,6 +17,7 @@ serde_json = "1.0.149"
 
 # data manipulation
 gpu_layout = "0.2.2"
+bytemuck = "1.24.0"
 
 # noise & random
 rand = "0.9.2"

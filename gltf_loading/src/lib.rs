@@ -62,7 +62,7 @@ impl GltfScenes {
             .read_dir()
             .unwrap()
             .map(|e| e.unwrap().path())
-            .find(|p| p.extension().unwrap() == OsStr::new("gltf"))
+            .find(|p| p.extension().is_some_and(|ext| ext == OsStr::new("gltf")))
             .expect(&error_string);
 
         let gltf = Gltf::open(gltf_path).expect(&error_string);
@@ -137,7 +137,6 @@ impl GltfScenes {
                         let primitive_bounding_volume = BoundingVolume {
                             min: primitive_bounding_box.min.into(),
                             max: primitive_bounding_box.max.into(),
-                            empty: primitive_bounding_box.min == primitive_bounding_box.max,
                         };
 
                         let mesh = UnserializedMesh {

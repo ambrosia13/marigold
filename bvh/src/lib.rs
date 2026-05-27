@@ -8,6 +8,7 @@ use std::{
     sync::{Arc, atomic::AtomicU32},
 };
 
+use bytemuck::NoUninit;
 use glam::Vec3A;
 use gpu_layout::{AsGpuBytes, GpuBytes};
 use rand::Rng;
@@ -21,6 +22,8 @@ pub trait AsBoundingVolume {
     }
 }
 
+/// same as `AsBoundingVolume` but adapted for objects that use indexing,
+/// like triangles with a separate vertex and index buffer
 pub trait AsBoundingVolumeIndices<S> {
     fn bounding_volume(&self, source: &[S]) -> BoundingVolume;
 
@@ -35,20 +38,17 @@ impl<T: AsBoundingVolume> AsBoundingVolumeIndices<()> for T {
     }
 }
 
-#[derive(Default, Clone, Copy, Debug)]
+#[derive(Default, Clone, Copy, Debug, NoUninit)]
+#[repr(C)]
 pub struct BoundingVolume {
     pub min: Vec3A,
     pub max: Vec3A,
-    pub empty: bool,
 }
 
 impl AsGpuBytes for BoundingVolume {
-    fn as_gpu_bytes<L: gpu_layout::GpuLayout + ?Sized>(&self) -> gpu_layout::GpuBytes<'_, L> {
-        let mut buf = GpuBytes::empty();
-
-        buf.write(&self.min).write(&self.max);
-
-        buf
+    // we can use a no-copy cast, since the cpu structure will exactly match the gpu structure in this exact case
+    fn as_gpu_bytes<L: gpu_layout::GpuLayout + ?Sized>(&self) -> GpuBytes<'_, L> {
+        GpuBytes::from_slice(bytemuck::bytes_of(self), 16)
     }
 }
 
@@ -60,17 +60,12 @@ impl AsBoundingVolume for BoundingVolume {
 
 impl BoundingVolume {
     pub const EMPTY: Self = Self {
-        min: Vec3A::ZERO,
-        max: Vec3A::ZERO,
-        empty: true,
+        min: Vec3A::INFINITY,
+        max: Vec3A::NEG_INFINITY,
     };
 
     pub fn new(min: Vec3A, max: Vec3A) -> Self {
-        Self {
-            min,
-            max,
-            empty: false,
-        }
+        Self { min, max }
     }
 
     pub fn center(self) -> Vec3A {
@@ -88,7 +83,11 @@ impl BoundingVolume {
         let height = extent.y;
         let depth = extent.z;
 
-        2.0 * (width * height + width * depth + height * depth)
+        if !self.is_empty() {
+            2.0 * (width * height + width * depth + height * depth)
+        } else {
+            0.0
+        }
     }
 
     pub fn grow<T: AsBoundingVolume>(&mut self, object: &T) {
@@ -97,20 +96,17 @@ impl BoundingVolume {
     }
 
     pub fn grow_from_bounding_volume(&mut self, bounds: BoundingVolume) {
-        if !self.is_empty() && !bounds.is_empty() {
-            self.min = self.min.min(bounds.min);
-            self.max = self.max.max(bounds.max);
-        } else if self.is_empty() {
-            *self = bounds;
-        }
+        self.min = self.min.min(bounds.min);
+        self.max = self.max.max(bounds.max);
     }
 
     pub fn is_empty(self) -> bool {
-        self.empty
+        // if any of max < min, then empty
+        self.max.cmplt(self.min).any()
     }
 
     pub fn contains(self, point: Vec3A) -> bool {
-        !self.empty && point.cmpge(self.min).all() && point.cmple(self.max).all()
+        !self.is_empty() && point.cmpge(self.min).all() && point.cmple(self.max).all()
     }
 }
 
