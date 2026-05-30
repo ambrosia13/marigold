@@ -79,7 +79,7 @@ void compute(
 
 
     // debug view
-    Hit hit = scene.raytraceTlas(ray, traversalInfo);
+    Hit hit = scene.raytraceWorld(ray);
     //color = float3(traversalInfo) / 500.0;
     //color = float3(1.0 - exp(-hit.distance * 0.01));
     color = select(hit.success, hit.normal, float3(0.0));

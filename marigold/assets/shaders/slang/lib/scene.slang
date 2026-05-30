@@ -6,6 +6,55 @@ public static const uint TLAS_MAX_DEPTH = 32;
 public static const uint BLAS_MAX_DEPTH = 32;
 public static const uint BVH_STACK_SIZE = TLAS_MAX_DEPTH + BLAS_MAX_DEPTH;
 
+public interface Bvh {
+    static uint rootIndex(Scene scene, uint baseIndex);
+    static Hit intersect(Scene scene, Ray ray, uint baseIndex, uint objectIndex, float closestHitDistance);
+}
+
+public struct Tlas: Bvh {
+    [ForceInline]
+    static uint rootIndex(Scene scene, uint baseIndex) {
+        // the root is always the first node in the buffer
+        return 0;
+    }
+
+    [ForceInline]
+    static Hit intersect(Scene scene, Ray ray, uint baseIndex, uint objectIndex, float closestHitDistance) {
+        // transform world ray to local
+        Ray localRay = Ray(
+            mul(scene.meshes[objectIndex].inverseTransform, float4(ray.pos, 1.0)).xyz,
+            mul(scene.meshes[objectIndex].inverseTransform, float4(ray.dir, 0.0)).xyz
+        );
+
+        closestHitDistance *= length(localRay.dir);
+
+        Hit localHit = scene.raytrace<Blas>(localRay, scene.blasNodes, objectIndex, closestHitDistance);
+
+        // transform local hit to world
+        // localHit.distance /= length(localRay.dir);
+
+        localHit.position = ray.pos + ray.dir * localHit.distance;
+        localHit.normal = normalize(mul(localHit.normal, float3x3(scene.meshes[objectIndex].inverseTransform)));
+
+        return localHit;
+    }
+}
+
+public struct Blas: Bvh {
+    [ForceInline]
+    static uint rootIndex(Scene scene, uint baseIndex) {
+        // the root depends on the mesh
+        return scene.meshes[baseIndex].blasRoot;
+    }
+
+    [ForceInline]
+    static Hit intersect(Scene scene, Ray ray, uint baseIndex, uint objectIndex, float closestHitDistance) {
+        uint vertexOffset = scene.meshes[baseIndex].vertexOffset;
+        uint triangleOffset = scene.meshes[baseIndex].triangleOffset;
+        return scene.rayIntersectTriangle(ray, vertexOffset, triangleOffset + objectIndex);
+    }
+}
+
 public struct Scene {
     public ConstantBuffer<Counts> counts;
 
@@ -88,7 +137,70 @@ public struct Scene {
         return hit;
     }
 
+    // baseIndex: instance or mesh offset, for TLAS, this is zero since there's only one TLAS
+    // closestHitDistance: infinity for TLAS
+    //
+    // for example, the TLAS intersector raytraces against the mesh at the object index.
+    // meanwhile the BLAS intersector raytraces against triangles starting against the mesh[index]'s triangle and vertex offset in local space
+    public Hit raytrace<T: Bvh>(Ray ray, StructuredBuffer<BvhNode> bvh, uint baseIndex, float closestHitDistance) {
+        Stack<BvhNodePayload, BVH_STACK_SIZE> stack;
+        Hit closestHit = Hit.NO_HIT;
+
+        uint rootIndex = T.rootIndex(this, baseIndex);
+        BvhNode root = bvh[rootIndex];
+
+        BvhHit rootHit = rayIntersectBoundingVolume(ray, root.boundsMin, root.boundsMax);
+
+        // miss the bounding volume, no hit
+        if (!rootHit.success) {
+            return closestHit;
+        }
+
+        stack.push(root.payload());
+
+        while (!stack.isEmpty()) {
+            BvhNodePayload payload = stack.pop();
+            uint childIndex = payload.childNode;
+
+            closestHitDistance = min(closestHitDistance, select(closestHit.success, closestHit.distance, float.maxValue));
+
+            if (childIndex != 0) {
+                // node has children, push to stack so we can test them next
+                BvhNode childA = bvh[rootIndex + childIndex];
+                BvhNode childB = bvh[rootIndex + childIndex + 1];
+
+                BvhHit childAHit = rayIntersectBoundingVolume(ray, childA.boundsMin, childA.boundsMax);
+                BvhHit childBHit = rayIntersectBoundingVolume(ray, childB.boundsMin, childB.boundsMax);
+
+                BvhNodePayload payloadA = childA.payload();
+                BvhNodePayload payloadB = childB.payload();
+
+                bool pushChildA = childAHit.success && childAHit.distance < closestHitDistance;
+                bool pushChildB = childBHit.success && childBHit.distance < closestHitDistance;
+
+                if (pushChildA && pushChildB) {
+                    stack.push(select(childAHit.distance < childBHit.distance, payloadB, payloadA));
+                    stack.push(select(childAHit.distance < childBHit.distance, payloadA, payloadB));
+                } else if (pushChildA || pushChildB) {
+                    stack.push(select(pushChildA, payloadA, payloadB));
+                }
+            } else {
+                closestHit = Hit.merge(
+                    closestHit,
+                    T.intersect(this, ray, baseIndex, payload.objectIndex, closestHitDistance)
+                );
+            }
+        }
+
+        return closestHit;
+    }
+
+    public Hit raytraceWorld(Ray ray) {
+        return raytrace<Tlas>(ray, tlasNodes, 0, float.maxValue);
+    }
+
     public Hit raytraceTlas(Ray ray, out uint3 traversalInfo) {
+        traversalInfo = uint3(0);
         Stack<BvhNodePayload, BVH_STACK_SIZE> payloadStack;
 
         Hit closestHit = Hit.NO_HIT;
