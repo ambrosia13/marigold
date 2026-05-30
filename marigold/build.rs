@@ -144,6 +144,7 @@ fn compile(slangc: &str, regex: &Regex, debug_info: bool, errors: Sender<String>
 }
 
 fn update_log() -> File {
+    std::fs::create_dir_all(ERROR_DIRECTORY).expect("couldn't create shader error directory");
     let path = Path::new(ERROR_DIRECTORY).join("latest.log");
 
     if path.exists() {
