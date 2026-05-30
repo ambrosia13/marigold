@@ -14,6 +14,7 @@ use gpu_layout::{AsGpuBytes, GpuBytes};
 use rand::Rng;
 use serde::Serialize;
 
+/// trait for objects that have a bounding box, required for bvh construction
 pub trait AsBoundingVolume {
     fn bounding_volume(&self) -> BoundingVolume;
 
@@ -32,12 +33,16 @@ pub trait AsBoundingVolumeIndices<S> {
     }
 }
 
+/// blanket impl so both traits work together
 impl<T: AsBoundingVolume> AsBoundingVolumeIndices<()> for T {
     fn bounding_volume(&self, _source: &[()]) -> BoundingVolume {
         self.bounding_volume()
     }
 }
 
+/// the actual bounding box struct. since we use simd vec3s which are 16 byte aligned,
+/// this exactly matches the gpu layout, so we can use repr(C) and a simple bytemuck
+/// cast to send over the data to the gpu
 #[derive(Default, Clone, Copy, Debug, NoUninit)]
 #[repr(C)]
 pub struct BoundingVolume {
@@ -47,6 +52,7 @@ pub struct BoundingVolume {
 
 impl AsGpuBytes for BoundingVolume {
     // we can use a no-copy cast, since the cpu structure will exactly match the gpu structure in this exact case
+    // however this specific impl is unlikely to be used for cases when we can fit extra vars in the padding bytes
     fn as_gpu_bytes<L: gpu_layout::GpuLayout + ?Sized>(&self) -> GpuBytes<'_, L> {
         GpuBytes::from_slice(bytemuck::bytes_of(self), 16)
     }
@@ -66,6 +72,13 @@ impl BoundingVolume {
 
     pub fn new(min: Vec3A, max: Vec3A) -> Self {
         Self { min, max }
+    }
+
+    pub fn from_point(point: Vec3A) -> Self {
+        Self {
+            min: point,
+            max: point,
+        }
     }
 
     pub fn center(self) -> Vec3A {
@@ -107,6 +120,13 @@ impl BoundingVolume {
 
     pub fn contains(self, point: Vec3A) -> bool {
         !self.is_empty() && point.cmpge(self.min).all() && point.cmple(self.max).all()
+    }
+
+    /// used for assertions to ensure good quality bounding boxes so we can compare actual to expected
+    pub fn roughly_equal(self, other: Self) -> bool {
+        let eps = Vec3A::splat(0.01);
+        (self.min - other.min).abs().cmplt(eps).all()
+            && (self.max - other.max).abs().cmplt(eps).all()
     }
 }
 
@@ -160,21 +180,18 @@ impl<const MIN_LEAF_OBJECTS: u32, const MAX_LEAF_OBJECTS: u32> AsGpuBytes
     fn as_gpu_bytes<L: gpu_layout::GpuLayout + ?Sized>(&self) -> GpuBytes<'_, L> {
         let mut buf = GpuBytes::empty();
 
-        if MAX_LEAF_OBJECTS == 1 {
+        buf.write(&self.bounds.min);
+        buf.write(&self.start_index);
+        buf.write(&self.bounds.max);
+
+        if MIN_LEAF_OBJECTS == 1 && MAX_LEAF_OBJECTS == 1 {
             // no need to encode length at all, we know leaf count is exactly 1
             // and leaf node is checked as child_node == 0
-            buf.write(&self.bounds.min);
-            buf.write(&self.start_index);
-            buf.write(&self.bounds.max);
             buf.write(&self.child_node);
         } else {
-            buf.write(&self.bounds.min);
-            buf.write(&self.start_index);
-            buf.write(&self.bounds.max);
-
-            // number of bits required for the length
             let len_overflow = MAX_LEAF_OBJECTS.next_power_of_two();
 
+            // number of bits required for the length
             let len_bits = len_overflow.ilog2();
             let child_node_bits = 32 - len_bits;
 
@@ -182,6 +199,9 @@ impl<const MIN_LEAF_OBJECTS: u32, const MAX_LEAF_OBJECTS: u32> AsGpuBytes
 
             if self.child_node == 0 {
                 // make sure the length fits in the bits
+                //
+                // note: this assertion is technically not required, since this is ensured by the
+                // bvh construction itself, but i'm keeping it in just in case of future regression
                 assert!(self.len < len_overflow);
             }
 
@@ -193,19 +213,6 @@ impl<const MIN_LEAF_OBJECTS: u32, const MAX_LEAF_OBJECTS: u32> AsGpuBytes
 
             buf.write(&packed);
         }
-
-        // buf.write(&self.bounds.min);
-        // buf.write(&self.start_index);
-        // buf.write(&self.bounds.max);
-
-        // if self.child_node == 0 {
-        //     assert!(self.len < 128);
-        // }
-
-        // let packed = (self.len & 0b11111) << 25; // upper 5 bits
-        // let packed = packed | (self.child_node & ((1 << 25) - 1)); // lower 27 bits
-
-        // buf.write(&packed);
 
         buf
     }
@@ -644,6 +651,29 @@ impl<const MIN_LEAF_OBJECTS: u32, const MAX_LEAF_OBJECTS: u32>
                 .iter()
                 .all(|obj| child_gt.bounds.contains(obj.center(source)))
         );
+
+        // if min == max == 1 (our case), we can set the exact child bounds cheaply for leaf nodes
+        if MIN_LEAF_OBJECTS == 1 && MAX_LEAF_OBJECTS == 1 {
+            // do this check only for would-be leaf nodes
+            if child_lt.len == 1 {
+                // assert!(
+                //     child_lt
+                //         .bounds
+                //         .roughly_equal(list_lt[0].bounding_volume(source))
+                // );
+
+                child_lt.bounds = list_lt[0].bounding_volume(source);
+            }
+            if child_gt.len == 1 {
+                // assert!(
+                //     child_gt
+                //         .bounds
+                //         .roughly_equal(list_gt[0].bounding_volume(source))
+                // );
+
+                child_gt.bounds = list_gt[0].bounding_volume(source);
+            }
+        }
 
         child_gt.start_index = self.start_index + child_lt.len;
 
