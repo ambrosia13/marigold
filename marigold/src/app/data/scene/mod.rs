@@ -26,7 +26,7 @@ pub type MarigoldBvh = BoundingVolumeHierarchy<BVH_MIN_LEAF_NODES, BVH_MAX_LEAF_
 pub type MarigoldBvhNode = bvh::BvhNode<BVH_MIN_LEAF_NODES, BVH_MAX_LEAF_NODES>;
 
 pub const TLAS_MAX_DEPTH: u32 = 32;
-pub const BLAS_MAX_DEPTH: u32 = 32;
+pub const BLAS_MAX_DEPTH: u32 = 48;
 
 #[derive(AsGpuBytes)]
 struct Counts {

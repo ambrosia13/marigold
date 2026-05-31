@@ -71,7 +71,29 @@ pub fn load_all_models(mut commands: Commands) {
         let path = util::get_asset_path(path);
 
         let gltf_scenes = GltfScenes::load(path);
-        let (mut unserialized_meshes, scenes) = gltf_scenes.into_meshes_and_scenes();
+        let (unserialized_meshes, mut scenes) = gltf_scenes.into_meshes_and_scenes();
+        let mut unserialized_meshes: Vec<_> = scenes
+            .iter_mut()
+            .map(|s| s.flatten_instances(&unserialized_meshes))
+            .collect();
+
+        // log mesh info
+        // let (size, unit) = util::display_byte_size(
+        //     12 * unserialized_meshes[0].triangles.len()
+        //         + 32 * unserialized_meshes[0].vertices.len(),
+        // );
+        // let (flattened_size, flattened_unit) =
+        //     util::display_byte_size(32 * 3 * unserialized_meshes[0].triangles.len());
+
+        // log::info!(
+        //     "size of triangles + vertices: {} {}, size if triangles were flattened: {} {}",
+        //     // 12 bytes per triangle, 32 bytes per vertex
+        //     size,
+        //     unit,
+        //     // 32 bytes per vertex, 3 vertices per triangle
+        //     flattened_size,
+        //     flattened_unit
+        // );
 
         // build bvhs in parallel
         let bvhs: Vec<_> = unserialized_meshes

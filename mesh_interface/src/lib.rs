@@ -1,6 +1,6 @@
 use bvh::{AsBoundingVolume, AsBoundingVolumeIndices, BoundingVolume};
 use derived_deref::Deref;
-use glam::{Mat4, Vec3, Vec3A};
+use glam::{Mat3A, Mat4, Vec3, Vec3A};
 use gpu_layout::{AsGpuBytes, GpuBytes};
 
 #[derive(AsGpuBytes, Default, Clone, Copy)]
@@ -9,6 +9,17 @@ pub struct MeshVertex {
     pub uv_x: f32,
     pub normal: Vec3,
     pub uv_y: f32,
+}
+
+impl MeshVertex {
+    pub fn transform(self, transform: Mat4, normal_matrix: Mat3A) -> Self {
+        Self {
+            position: (transform * self.position.extend(1.0)).truncate(),
+            uv_x: self.uv_x,
+            normal: (normal_matrix * self.normal).normalize(),
+            uv_y: self.uv_y,
+        }
+    }
 }
 
 #[derive(Deref, AsGpuBytes, Default, Clone, Copy)]
@@ -40,6 +51,48 @@ pub struct UnserializedMesh {
 pub struct Scene {
     pub name: String,
     pub instances: Vec<MeshInstance>,
+}
+
+impl Scene {
+    /// convert the scene to a single mesh, to reduce indirection and potentially gain runtime performance
+    /// at the cost of GPU memory usage
+    pub fn flatten_instances(&mut self, meshes: &[UnserializedMesh]) -> UnserializedMesh {
+        let mut mesh = UnserializedMesh {
+            vertices: Vec::new(),
+            triangles: Vec::new(),
+            bounds: BoundingVolume::EMPTY,
+        };
+
+        for instance in &self.instances {
+            let instance_mesh = &meshes[instance.mesh_index];
+            let normal_matrix = Mat3A::from_mat4(instance.transform.inverse()).transpose();
+
+            let vertex_offset = mesh.vertices.len();
+            mesh.vertices.extend(
+                instance_mesh
+                    .vertices
+                    .iter()
+                    .map(|v| v.transform(instance.transform, normal_matrix)),
+            );
+
+            for vertex in mesh.vertices.iter().skip(vertex_offset) {
+                mesh.bounds.max = mesh.bounds.max.max(vertex.position.into());
+                mesh.bounds.min = mesh.bounds.min.min(vertex.position.into());
+            }
+
+            mesh.triangles
+                .extend(instance_mesh.triangles.iter().map(|t| MeshTriangle {
+                    indices: t.indices.map(|i| i + vertex_offset as u32),
+                }));
+        }
+
+        self.instances = vec![MeshInstance {
+            transform: Mat4::IDENTITY,
+            mesh_index: 0,
+        }];
+
+        mesh
+    }
 }
 
 pub struct MeshInstance {
