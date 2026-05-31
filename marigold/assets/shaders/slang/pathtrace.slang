@@ -79,41 +79,41 @@ void compute(
 
 
     // debug view
-    Hit hit = scene.raytraceWorld(ray);
-    //color = float3(traversalInfo) / 500.0;
-    //color = float3(1.0 - exp(-hit.distance * 0.01));
-    color = select(hit.success, hit.normal, float3(0.0));
+    // Hit hit = scene.raytraceWorld(ray);
+    // //color = float3(traversalInfo) / 500.0;
+    // //color = float3(1.0 - exp(-hit.distance * 0.01));
+    // color = select(hit.success, hit.normal, float3(0.0));
 
     // path tracing
-    // float3 radiance = float3(0.0);
-    // float3 throughput = float3(1.0);
+    float3 radiance = float3(0.0);
+    float3 throughput = float3(1.0);
 
-    // uint bounces = 5;
-    // for (uint i = 0; i < bounces; i++) {
-    //     Hit hit = scene.raytraceTlas(ray, traversalInfo);
+    uint bounces = 5;
+    for (uint i = 0; i < bounces; i++) {
+        Hit hit = scene.raytraceTlas(ray, traversalInfo);
 
-    //     if (!hit.success) {
-    //         radiance += throughput * background.texture.SampleLevel(background.sampler, ray.dir, 0).rgb;
-    //         break;
-    //     }
+        if (!hit.success) {
+            radiance += throughput * background.texture.SampleLevel(background.sampler, ray.dir, 0).rgb;
+            break;
+        }
 
-    //     throughput *= float3(0.95); // fake albedo
+        throughput *= float3(0.95); // fake albedo
 
-    //     // float inverseTerminationProbability = clamp(dot(throughput, float3(0.3333)), 0.0, 1.0);
-    //     // if (random.getFloat() > inverseTerminationProbability) {
-    //     //     break;
-    //     // }
+        // float inverseTerminationProbability = clamp(dot(throughput, float3(0.3333)), 0.0, 1.0);
+        // if (random.getFloat() > inverseTerminationProbability) {
+        //     break;
+        // }
 
-    //     // throughput *= 1.0 / inverseTerminationProbability;
+        // throughput *= 1.0 / inverseTerminationProbability;
 
-    //     ray = Ray(
-    //         hit.biasPositionPositive(),
-    //         random.getCosineVector(hit.normal)
-    //     );
+        ray = Ray(
+            hit.biasPositionPositive(),
+            random.getCosineVector(hit.normal)
+        );
 
-    // }
+    }
 
-    // color = radiance;
+    color = radiance;
 
     float4 previousSample = textures.previous.Load(int3(globalInvocationId.xy, 0));
     float3 previousColor = previousSample.rgb;

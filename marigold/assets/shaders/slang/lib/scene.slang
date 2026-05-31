@@ -3,15 +3,15 @@ import "stack";
 import "math";
 
 public static const uint TLAS_MAX_DEPTH = 32;
-public static const uint BLAS_MAX_DEPTH = 32;
+public static const uint BLAS_MAX_DEPTH = 48;
 public static const uint BVH_STACK_SIZE = TLAS_MAX_DEPTH + BLAS_MAX_DEPTH;
 
-public interface Bvh {
+public interface Bvh<let STACK_SIZE: uint> {
     static uint rootIndex(Scene scene, uint baseIndex);
     static Hit intersect(Scene scene, Ray ray, uint baseIndex, uint objectIndex, float closestHitDistance);
 }
 
-public struct Tlas: Bvh {
+public struct Tlas: Bvh<TLAS_MAX_DEPTH> {
     [ForceInline]
     static uint rootIndex(Scene scene, uint baseIndex) {
         // the root is always the first node in the buffer
@@ -28,7 +28,7 @@ public struct Tlas: Bvh {
 
         closestHitDistance *= length(localRay.dir);
 
-        Hit localHit = scene.raytrace<Blas>(localRay, scene.blasNodes, objectIndex, closestHitDistance);
+        Hit localHit = scene.raytrace<BLAS_MAX_DEPTH, Blas>(localRay, scene.blasNodes, objectIndex, closestHitDistance);
 
         // transform local hit to world
         // localHit.distance /= length(localRay.dir);
@@ -40,7 +40,7 @@ public struct Tlas: Bvh {
     }
 }
 
-public struct Blas: Bvh {
+public struct Blas: Bvh<BLAS_MAX_DEPTH> {
     [ForceInline]
     static uint rootIndex(Scene scene, uint baseIndex) {
         // the root depends on the mesh
@@ -142,8 +142,8 @@ public struct Scene {
     //
     // for example, the TLAS intersector raytraces against the mesh at the object index.
     // meanwhile the BLAS intersector raytraces against triangles starting against the mesh[index]'s triangle and vertex offset in local space
-    public Hit raytrace<T: Bvh>(Ray ray, StructuredBuffer<BvhNode> bvh, uint baseIndex, float closestHitDistance) {
-        Stack<BvhNodePayload, BVH_STACK_SIZE> stack;
+    public Hit raytrace<let STACK_SIZE: uint, T: Bvh<STACK_SIZE>>(Ray ray, StructuredBuffer<BvhNode> bvh, uint baseIndex, float closestHitDistance) {
+        Stack<BvhNodePayload, STACK_SIZE> stack;
         Hit closestHit = Hit.NO_HIT;
 
         uint rootIndex = T.rootIndex(this, baseIndex);
@@ -196,7 +196,8 @@ public struct Scene {
     }
 
     public Hit raytraceWorld(Ray ray) {
-        return raytrace<Tlas>(ray, tlasNodes, 0, float.maxValue);
+        //return raytrace<TLAS_MAX_DEPTH, Tlas>(ray, tlasNodes, 0, float.maxValue);
+        return raytrace<BLAS_MAX_DEPTH, Blas>(ray, blasNodes, 0, float.maxValue); // raytrace a single mesh
     }
 
     public Hit raytraceTlas(Ray ray, out uint3 traversalInfo) {
