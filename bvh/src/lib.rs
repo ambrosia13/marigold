@@ -14,6 +14,11 @@ use gpu_layout::{AsGpuBytes, GpuBytes};
 use rand::Rng;
 use serde::Serialize;
 
+pub mod wide;
+
+pub const NODE_COST: f32 = 1.0;
+pub const OBJECT_COST: f32 = 8.0;
+
 /// trait for objects that have a bounding box, required for bvh construction
 pub trait AsBoundingVolume {
     fn bounding_volume(&self) -> BoundingVolume;
@@ -221,9 +226,6 @@ impl<const MIN_LEAF_OBJECTS: u32, const MAX_LEAF_OBJECTS: u32> AsGpuBytes
 impl<const MIN_LEAF_OBJECTS: u32, const MAX_LEAF_OBJECTS: u32>
     BvhNode<MIN_LEAF_OBJECTS, MAX_LEAF_OBJECTS>
 {
-    pub const DEPTH_COST: f32 = 1.0;
-    pub const OBJECT_COST: f32 = 8.0;
-
     pub fn root<S, T: AsBoundingVolumeIndices<S>>(list: &mut [T], source: &[S]) -> Self {
         let mut bounds = BoundingVolume::EMPTY;
 
@@ -256,7 +258,7 @@ impl<const MIN_LEAF_OBJECTS: u32, const MAX_LEAF_OBJECTS: u32>
     }
 
     fn leaf_cost(&self) -> f32 {
-        Self::OBJECT_COST * self.len as f32
+        OBJECT_COST * self.len as f32
     }
 
     fn evaluate_binned_split(
@@ -283,16 +285,16 @@ impl<const MIN_LEAF_OBJECTS: u32, const MAX_LEAF_OBJECTS: u32>
         }
 
         let lt_cost =
-            bounds_lt.surface_area() / bounds.surface_area() * Self::OBJECT_COST * lt_count as f32;
+            bounds_lt.surface_area() / bounds.surface_area() * OBJECT_COST * lt_count as f32;
         let gt_cost =
-            bounds_gt.surface_area() / bounds.surface_area() * Self::OBJECT_COST * gt_count as f32;
+            bounds_gt.surface_area() / bounds.surface_area() * OBJECT_COST * gt_count as f32;
 
         CandidateSplit {
             bounds_lt,
             bounds_gt,
             count_lt: lt_count,
             count_gt: gt_count,
-            cost: Self::DEPTH_COST + lt_cost + gt_cost,
+            cost: NODE_COST + lt_cost + gt_cost,
         }
     }
 
@@ -322,16 +324,16 @@ impl<const MIN_LEAF_OBJECTS: u32, const MAX_LEAF_OBJECTS: u32>
         }
 
         let lt_cost =
-            bounds_lt.surface_area() / bounds.surface_area() * Self::OBJECT_COST * lt_count as f32;
+            bounds_lt.surface_area() / bounds.surface_area() * OBJECT_COST * lt_count as f32;
         let gt_cost =
-            bounds_gt.surface_area() / bounds.surface_area() * Self::OBJECT_COST * gt_count as f32;
+            bounds_gt.surface_area() / bounds.surface_area() * OBJECT_COST * gt_count as f32;
 
         CandidateSplit {
             bounds_lt,
             bounds_gt,
             count_lt: lt_count,
             count_gt: gt_count,
-            cost: Self::DEPTH_COST + lt_cost + gt_cost,
+            cost: NODE_COST + lt_cost + gt_cost,
         }
     }
 
@@ -474,19 +476,17 @@ impl<const MIN_LEAF_OBJECTS: u32, const MAX_LEAF_OBJECTS: u32>
             bounds_gt.grow_from_bounding_volume(object.bounding_volume(source));
         }
 
-        let lt_cost = bounds_lt.surface_area() / parent_bounds.surface_area()
-            * Self::OBJECT_COST
-            * lt.len() as f32;
-        let gt_cost = bounds_gt.surface_area() / parent_bounds.surface_area()
-            * Self::OBJECT_COST
-            * gt.len() as f32;
+        let lt_cost =
+            bounds_lt.surface_area() / parent_bounds.surface_area() * OBJECT_COST * lt.len() as f32;
+        let gt_cost =
+            bounds_gt.surface_area() / parent_bounds.surface_area() * OBJECT_COST * gt.len() as f32;
 
         let split = CandidateSplit {
             bounds_lt,
             bounds_gt,
             count_lt: lt.len() as u32,
             count_gt: gt.len() as u32,
-            cost: Self::DEPTH_COST + lt_cost + gt_cost,
+            cost: NODE_COST + lt_cost + gt_cost,
         };
 
         SuccessfulSplit {
