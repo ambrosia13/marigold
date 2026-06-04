@@ -6,6 +6,7 @@ import "lib/random";
 import "lib/math";
 import "lib/intersect";
 import "lib/scene";
+import "lib/atmosphere";
 
 struct Background {
     SamplerState sampler;
@@ -32,6 +33,8 @@ void compute(
     uniform ParameterBlock<Background> background,
     uniform ParameterBlock<Scene> scene,
     uniform ParameterBlock<GeometryTextures> textures,
+    // uniform ParameterBlock<AtmosphereParams> atmosphereParams,
+    // uniform ParameterBlock<AtmosphereLuts> atmosphereLuts,
 
     uint3 globalInvocationId: SV_DispatchThreadID,
     uint3 localInvocationId: SV_GroupThreadID,
@@ -90,7 +93,7 @@ void compute(
 
     uint bounces = 5;
     for (uint i = 0; i < bounces; i++) {
-        Hit hit = scene.raytraceTlas(ray, traversalInfo);
+        Hit hit = scene.raytraceWorld<true>(ray);
 
         if (!hit.success) {
             radiance += throughput * background.texture.SampleLevel(background.sampler, ray.dir, 0).rgb;

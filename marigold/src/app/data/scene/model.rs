@@ -11,6 +11,7 @@ use bevy_ecs::{
 use bvh::BvhSettings;
 use glam::{Vec3A, Vec4};
 use gltf_loading::GltfScenes;
+use gpu_layout::{AsGpuBytes, Std430Layout};
 use mesh_interface::{Scene, UnserializedMesh, UploadedMesh};
 use rayon::iter::{IndexedParallelIterator, IntoParallelRefMutIterator, ParallelIterator};
 
@@ -52,6 +53,24 @@ pub struct Model {
     pub active_scene: usize,
 }
 
+fn model_size(scenes: &[Scene], meshes: &[UnserializedMesh]) -> usize {
+    let mesh_size: usize = meshes
+        .iter()
+        .map(|mesh| mesh.triangles.len() * 12 + mesh.vertices.len() * 32)
+        .sum();
+
+    let instance_size = UploadedMesh::default()
+        .as_gpu_bytes::<Std430Layout>()
+        .as_slice()
+        .len();
+    let scene_size: usize = scenes
+        .iter()
+        .map(|scene| scene.instances.len() * instance_size)
+        .sum();
+
+    mesh_size + scene_size
+}
+
 pub fn load_all_models(mut commands: Commands) {
     let profiling_level = util::get_profiling_level();
     let model_dir_root_path = util::get_asset_path("meshes");
@@ -72,10 +91,27 @@ pub fn load_all_models(mut commands: Commands) {
 
         let gltf_scenes = GltfScenes::load(path);
         let (unserialized_meshes, mut scenes) = gltf_scenes.into_meshes_and_scenes();
+
+        let unflattened_size = model_size(&scenes, &unserialized_meshes);
+
         let mut unserialized_meshes: Vec<_> = scenes
             .iter_mut()
             .map(|s| s.flatten_instances(&unserialized_meshes))
             .collect();
+
+        let flattened_size = model_size(&scenes, &unserialized_meshes);
+
+        // compare unflattened and flattened model size
+        let (unflattened_size, unflattened_unit) = util::display_byte_size(unflattened_size);
+        let (flattened_size, flattened_unit) = util::display_byte_size(flattened_size);
+
+        log::info!(
+            "Before flattening, scene was {:.3} {}; after flattening, is {:.3} {}",
+            unflattened_size,
+            unflattened_unit,
+            flattened_size,
+            flattened_unit
+        );
 
         // log mesh info
         // let (size, unit) = util::display_byte_size(

@@ -48,7 +48,7 @@ impl GpuHandle {
         //         source: wgpu::ShaderSource::SpirV(source),
         //     });
 
-        // // use passthrough shader modules when in release mode so we don't needlessly send spirv shaders through naga
+        // // // use passthrough shader modules when in release mode so we don't needlessly send spirv shaders through naga
         // #[cfg(not(debug_assertions))]
         unsafe {
             self.device
@@ -59,20 +59,6 @@ impl GpuHandle {
                 })
         }
     }
-
-    // pub fn create_shader_module_with_specialization_constants(
-    //     &self,
-    //     label: &str,
-    //     source: Cow<'_, [u32]>,
-    //     constants: &[(u32, &[u8])],
-    // ) -> wgpu::ShaderModule {
-    //     let vk_device = unsafe { self.device.as_hal::<wgpu::hal::api::Vulkan>() }
-    //         .expect("vulkan backend should always be selected");
-
-    //     //wgpu::hal::vulkan::ShaderModule::Raw(())
-
-    //     todo!()
-    // }
 }
 
 pub enum FrameError {

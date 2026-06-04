@@ -7,13 +7,16 @@ import "../lib/atmosphere";
 // Code taken and adapted from https://www.shadertoy.com/view/slSXRW
 
 struct SkyViewResources {
+    [vk_image_format("r11f_g11f_b10f")]
     RWTexture2D dayTexture;
+
+    [vk_image_format("r11f_g11f_b10f")]
     RWTexture2D nightTexture;
 }
 
 [[numthreads(8, 8, 1)]]
 [[shader("compute")]]
-void compute(    
+void compute(
     uint3 globalInvocationId: SV_DispatchThreadID,
     uint3 localInvocationId: SV_GroupThreadID,
     uint localInvocationIndex: SV_GroupIndex,
@@ -22,7 +25,7 @@ void compute(
     uniform ParameterBlock<ConstantBuffer<AtmosphereParams>> atmosphereParams,
     uniform ParameterBlock<AtmosphereLuts> atmosphereLuts,
     uniform ParameterBlock<SkyViewResources> resources,
-    
+
     uniform uint2 skyViewTextureSize,
 ) {
     // don't render sky view LUT if not inside atmosphere
@@ -54,7 +57,7 @@ void compute(
 
     float height = length(skyViewPos);
     float3 up = skyViewPos / height;
-    
+
     float horizonAngle = safeAcos(sqrt(height * height - atmosphereParams.groundRadius * atmosphereParams.groundRadius) / height) - HALF_PI;
     float altitudeAngle = adjV * HALF_PI - horizonAngle;
     float cosAltitude = cos(altitudeAngle);
@@ -98,4 +101,3 @@ void compute(
     resources.dayTexture.Store(globalInvocationId.xy, float4(dayColor, 1.0));
     resources.nightTexture.Store(globalInvocationId.xy, float4(nightColor, 1.0));
 }
-

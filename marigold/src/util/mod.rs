@@ -106,13 +106,16 @@ pub fn get_workgroup_count_from_size(workgroup_size: UVec3, dimensions: UVec3) -
 
 // returns new number + unit
 pub fn display_byte_size(bytes: usize) -> (f64, &'static str) {
-    if bytes < 1024 {
-        (bytes as f64, "B")
-    } else if bytes < 1024 * 1024 {
-        (bytes as f64 / 1024.0, "KiB")
-    } else if bytes < 1024 * 1024 * 1024 {
-        (bytes as f64 / (1024.0 * 1024.0), "MiB")
-    } else {
-        (bytes as f64 / (1024.0 * 1024.0 * 1024.0), "GiB")
+    let base: usize = 1024;
+    let units = ["B", "KiB", "MiB"];
+
+    for (power, unit) in units.into_iter().enumerate() {
+        let max_of_unit = base.pow(1 + power as u32);
+        if bytes < max_of_unit {
+            return (bytes as f64 / base.pow(power as u32) as f64, unit);
+        }
     }
+
+    // if none of the other units work, format as GiB
+    (bytes as f64 / base.pow(3) as f64, "GiB")
 }

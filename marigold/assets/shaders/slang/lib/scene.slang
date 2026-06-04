@@ -28,7 +28,7 @@ public struct Tlas: Bvh<TLAS_MAX_DEPTH> {
 
         closestHitDistance *= length(localRay.dir);
 
-        Hit localHit = scene.raytrace<BLAS_MAX_DEPTH, Blas>(localRay, scene.blasNodes, objectIndex, closestHitDistance);
+        Hit localHit = scene.raytrace<false, BLAS_MAX_DEPTH, Blas>(localRay, scene.blasNodes, objectIndex, closestHitDistance);
 
         // transform local hit to world
         // localHit.distance /= length(localRay.dir);
@@ -142,7 +142,7 @@ public struct Scene {
     //
     // for example, the TLAS intersector raytraces against the mesh at the object index.
     // meanwhile the BLAS intersector raytraces against triangles starting against the mesh[index]'s triangle and vertex offset in local space
-    public Hit raytrace<let STACK_SIZE: uint, T: Bvh<STACK_SIZE>>(Ray ray, StructuredBuffer<BvhNode> bvh, uint baseIndex, float closestHitDistance) {
+    public Hit raytrace<let ANY_HIT: bool, let STACK_SIZE: uint, T: Bvh<STACK_SIZE>>(Ray ray, StructuredBuffer<BvhNode> bvh, uint baseIndex, float closestHitDistance) {
         Stack<BvhNodePayload, STACK_SIZE> stack;
         Hit closestHit = Hit.NO_HIT;
 
@@ -185,19 +185,22 @@ public struct Scene {
                     stack.push(select(pushChildA, payloadA, payloadB));
                 }
             } else {
-                closestHit = Hit.merge(
-                    closestHit,
-                    T.intersect(this, ray, baseIndex, payload.objectIndex, closestHitDistance)
-                );
+                Hit hit = T.intersect(this, ray, baseIndex, payload.objectIndex, closestHitDistance);
+
+                if (ANY_HIT && hit.success) {
+                    return hit;
+                }
+
+                closestHit = Hit.merge(closestHit, hit);
             }
         }
 
         return closestHit;
     }
 
-    public Hit raytraceWorld(Ray ray) {
+    public Hit raytraceWorld<let ANY_HIT: bool>(Ray ray) {
         //return raytrace<TLAS_MAX_DEPTH, Tlas>(ray, tlasNodes, 0, float.maxValue);
-        return raytrace<BLAS_MAX_DEPTH, Blas>(ray, blasNodes, 0, float.maxValue); // raytrace a single mesh
+        return raytrace<ANY_HIT, BLAS_MAX_DEPTH, Blas>(ray, blasNodes, 0, float.maxValue); // raytrace a single mesh
     }
 
     public Hit raytraceTlas(Ray ray, out uint3 traversalInfo) {

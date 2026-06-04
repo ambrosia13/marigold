@@ -1,4 +1,4 @@
-public struct Stack<T, let N: uint> {
+public struct Stack<T, uint N> {
     uint length;
     T[N] values;
 

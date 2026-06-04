@@ -8,19 +8,21 @@ import "../lib/atmosphere";
 struct MultiscatteringResources {
     SamplerState sampler;
     Texture2D transmittanceTexture;
+
+    [vk_image_format("rgba16")]
     RWTexture2D multiscatteringTexture;
 }
 
 [[numthreads(8, 8, 1)]]
 [[shader("compute")]]
-void compute(    
+void compute(
     uint3 globalInvocationId: SV_DispatchThreadID,
     uint3 localInvocationId: SV_GroupThreadID,
     uint localInvocationIndex: SV_GroupIndex,
 
     uniform ParameterBlock<ConstantBuffer<AtmosphereParams>> atmosphereParams,
     uniform ParameterBlock<MultiscatteringResources> resources,
-    
+
     uniform uint2 multiscatteringTextureSize,
 ) {
     float2 uv = float2(globalInvocationId.xy) / multiscatteringTextureSize;

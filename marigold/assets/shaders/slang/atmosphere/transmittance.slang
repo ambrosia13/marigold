@@ -6,12 +6,13 @@ import "../lib/atmosphere";
 // Code taken and adapted from https://www.shadertoy.com/view/slSXRW
 
 struct TransmittanceResources {
+    [vk_image_format("rgba16")]
     RWTexture2D transmittanceTexture;
 }
 
 [[numthreads(8, 8, 1)]]
 [[shader("compute")]]
-void compute(    
+void compute(
     uint3 globalInvocationId: SV_DispatchThreadID,
     uint3 localInvocationId: SV_GroupThreadID,
     uint localInvocationIndex: SV_GroupIndex,
