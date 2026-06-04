@@ -1,8 +1,7 @@
-use std::{borrow::Cow, sync::Arc};
+use std::{borrow::Cow, default::Default, sync::Arc};
 
 use bevy_ecs::resource::Resource;
-use wgpu::SurfaceError;
-use winit::{dpi::PhysicalSize, window::Window};
+use winit::{dpi::PhysicalSize, event_loop::EventLoop, window::Window};
 
 #[expect(unused)]
 pub mod debug;
@@ -17,7 +16,7 @@ pub const WGPU_FEATURES: wgpu::Features = wgpu::Features::FLOAT32_FILTERABLE
     .union(wgpu::Features::TIMESTAMP_QUERY)
     .union(wgpu::Features::TIMESTAMP_QUERY_INSIDE_ENCODERS)
     .union(wgpu::Features::VERTEX_WRITABLE_STORAGE)
-    .union(wgpu::Features::EXPERIMENTAL_PASSTHROUGH_SHADERS)
+    .union(wgpu::Features::PASSTHROUGH_SHADERS)
     .union(wgpu::Features::TEXTURE_FORMAT_16BIT_NORM);
 
 pub const WGPU_LIMITS: wgpu::Limits = wgpu::Limits {
@@ -60,6 +59,26 @@ impl GpuHandle {
                 })
         }
     }
+
+    // pub fn create_shader_module_with_specialization_constants(
+    //     &self,
+    //     label: &str,
+    //     source: Cow<'_, [u32]>,
+    //     constants: &[(u32, &[u8])],
+    // ) -> wgpu::ShaderModule {
+    //     let vk_device = unsafe { self.device.as_hal::<wgpu::hal::api::Vulkan>() }
+    //         .expect("vulkan backend should always be selected");
+
+    //     //wgpu::hal::vulkan::ShaderModule::Raw(())
+
+    //     todo!()
+    // }
+}
+
+pub enum FrameError {
+    NeedsReconfigure,
+    SkipFrame,
+    Unrecoverable,
 }
 
 #[derive(Resource)]
@@ -82,9 +101,7 @@ pub struct SurfaceState {
 }
 
 impl SurfaceState {
-    pub async fn new(window: Arc<Window>) -> anyhow::Result<Self> {
-        let viewport_size = window.inner_size();
-
+    pub fn create_instance(event_loop: &EventLoop<()>) -> wgpu::Instance {
         let mut instance_flags = wgpu::InstanceFlags::empty();
 
         // enable vulkan validation layer in debug builds
@@ -100,11 +117,17 @@ impl SurfaceState {
             }
         }
 
-        let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
+        wgpu::Instance::new(wgpu::InstanceDescriptor {
             backends: wgpu::Backends::VULKAN,
             flags: instance_flags,
-            ..Default::default()
-        });
+            ..wgpu::InstanceDescriptor::new_with_display_handle(Box::new(
+                event_loop.owned_display_handle(),
+            ))
+        })
+    }
+
+    pub async fn new(instance: wgpu::Instance, window: Arc<Window>) -> anyhow::Result<Self> {
+        let viewport_size = window.inner_size();
 
         let surface = instance.create_surface(window.clone())?;
 
@@ -187,7 +210,7 @@ impl SurfaceState {
         }
     }
 
-    pub fn begin_frame(&self) -> Result<FrameRecord, SurfaceError> {
+    pub fn begin_frame(&self) -> Result<FrameRecord, FrameError> {
         let encoder = self
             .gpu
             .device
@@ -195,7 +218,35 @@ impl SurfaceState {
                 label: Some("Frame Encoder"),
             });
 
-        let surface_texture = self.surface.get_current_texture()?;
+        let current_surface_texture = self.surface.get_current_texture();
+
+        let surface_texture = match current_surface_texture {
+            wgpu::CurrentSurfaceTexture::Success(surface_texture) => surface_texture,
+            wgpu::CurrentSurfaceTexture::Suboptimal(_surface_texture) => {
+                log::warn!("surface was suboptimal, reconfiguring surface and skipping this frame");
+                return Err(FrameError::NeedsReconfigure);
+            }
+            wgpu::CurrentSurfaceTexture::Outdated => {
+                log::warn!("surface was outdated, reconfiguring surface and skipping this frame");
+                return Err(FrameError::NeedsReconfigure);
+            }
+            wgpu::CurrentSurfaceTexture::Timeout => {
+                log::warn!("surface timed out, skipping frame");
+                return Err(FrameError::SkipFrame);
+            }
+            wgpu::CurrentSurfaceTexture::Occluded => {
+                return Err(FrameError::SkipFrame);
+            }
+            wgpu::CurrentSurfaceTexture::Lost => {
+                log::error!("surface or device was lost, treating as unrecoverable error");
+                return Err(FrameError::Unrecoverable);
+            }
+            wgpu::CurrentSurfaceTexture::Validation => {
+                log::error!("uncaught validation error, treating as unrecoverable error");
+                return Err(FrameError::Unrecoverable);
+            }
+        };
+
         let surface_texture_view = surface_texture.texture.create_view(&Default::default());
 
         Ok(FrameRecord {

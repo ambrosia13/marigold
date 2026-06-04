@@ -6,6 +6,7 @@ use bevy_ecs::{
 };
 use derived_deref::Deref;
 use glam::UVec3;
+use std::default::Default;
 
 use crate::{
     app::{
@@ -142,10 +143,10 @@ impl GeometryCommon {
             .create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: Some("geometry_pass_pipeline_layout"),
                 bind_group_layouts: &[
-                    &screen_binding.bind_group_layout,
-                    &background_binding.bind_group_layout,
-                    &scene_binding.bind_group_layout,
-                    &geometry_textures.bind_group_layout,
+                    Some(&screen_binding.bind_group_layout),
+                    Some(&background_binding.bind_group_layout),
+                    Some(&scene_binding.bind_group_layout),
+                    Some(&geometry_textures.bind_group_layout),
                 ],
                 immediate_size: 0,
             });
@@ -181,7 +182,7 @@ pub fn create_pathtrace_pipeline(
             layout: Some(pipeline_layout),
             module: &shader_module,
             entry_point: Some("compute"),
-            compilation_options: Default::default(),
+            compilation_options: wgpu::PipelineCompilationOptions::default(),
             cache: None,
         });
 

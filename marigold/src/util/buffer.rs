@@ -47,7 +47,7 @@ where
 
         let mut view = buffer.get_mapped_range_mut(..);
 
-        view[0..(len_size as usize)]
+        view.slice(0..(len_size as usize))
             .copy_from_slice(source.as_gpu_bytes::<Std430Layout>().as_slice());
 
         drop(view);
@@ -93,7 +93,7 @@ where
         // write contents
         let mut data_bytes = source.as_gpu_bytes::<Std430Layout>();
         let data_bytes = data_bytes.as_slice();
-        view[..].copy_from_slice(data_bytes);
+        view.slice(..).copy_from_slice(data_bytes);
     }
 
     // returns true if buffer was reallocated
@@ -133,7 +133,7 @@ where
 
         let mut view = self.buffer.get_mapped_range_mut(..);
 
-        view[0..(len_size as usize)]
+        view.slice(0..(len_size as usize))
             .copy_from_slice(source.as_gpu_bytes::<Std430Layout>().as_slice());
 
         drop(view);

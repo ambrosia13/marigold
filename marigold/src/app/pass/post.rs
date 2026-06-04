@@ -262,7 +262,7 @@ impl PostTextures {
                 .device
                 .create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                     label: Some("post_pass_blit_pipeline_layout"),
-                    bind_group_layouts: &[&blit_bind_group_layout],
+                    bind_group_layouts: &[Some(&blit_bind_group_layout)],
                     immediate_size: 0,
                 });
 
@@ -443,8 +443,8 @@ impl DummyPostPass {
             .create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: Some("dummy_post_pipeline_layout"),
                 bind_group_layouts: &[
-                    &screen_binding.bind_group_layout,
-                    &post_textures.bind_group_layout,
+                    Some(&screen_binding.bind_group_layout),
+                    Some(&post_textures.bind_group_layout),
                 ],
                 immediate_size: 0,
             });

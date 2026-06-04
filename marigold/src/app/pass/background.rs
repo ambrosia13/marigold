@@ -253,10 +253,10 @@ impl AtmosphereCubemapPass {
             .create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: Some("sky_view_pass_pipeline_layout"),
                 bind_group_layouts: &[
-                    &screen_binding.bind_group_layout,
-                    &atmosphere_binding.bind_group_layout,
-                    &atmosphere_bake_pass.bind_group_layout,
-                    &bind_group_layout,
+                    Some(&screen_binding.bind_group_layout),
+                    Some(&atmosphere_binding.bind_group_layout),
+                    Some(&atmosphere_bake_pass.bind_group_layout),
+                    Some(&bind_group_layout),
                 ],
                 immediate_size: 4 * 2,
             });
@@ -350,10 +350,10 @@ impl AtmosphereCubemapPass {
             .create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: Some("atmosphere_cubemap_pass_pipeline_layout"),
                 bind_group_layouts: &[
-                    &screen_binding.bind_group_layout,
-                    &atmosphere_binding.bind_group_layout,
-                    &atmosphere_bake_pass.bind_group_layout,
-                    &bind_group_layout,
+                    Some(&screen_binding.bind_group_layout),
+                    Some(&atmosphere_binding.bind_group_layout),
+                    Some(&atmosphere_bake_pass.bind_group_layout),
+                    Some(&bind_group_layout),
                 ],
                 immediate_size: 0,
             });

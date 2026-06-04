@@ -15,7 +15,7 @@ use crate::{
     app::{
         data::{profile::FpsCounter, time::Time},
         messages::{ExitMessage, KeyInputMessage, MouseInputMessage, MouseMotionMessage},
-        render::{FrameRecord, SurfaceState},
+        render::{FrameError, FrameRecord, SurfaceState},
         schedules::Schedules,
     },
     egui::EguiRenderState,
@@ -55,9 +55,20 @@ pub fn run() {
         .build()
         .expect("Couldn't create window event loop");
 
-    let mut app = App { state: None };
+    let instance = SurfaceState::create_instance(&event_loop);
+    let app_state = AppState { instance };
+
+    let mut app = App {
+        app_state,
+        window_state: None,
+    };
 
     event_loop.run_app(&mut app).unwrap();
+}
+
+/// app state that is tied to the event loop (i.e. not tied to the window)
+struct AppState {
+    instance: wgpu::Instance,
 }
 
 // toggle with Esc
@@ -76,7 +87,8 @@ enum MenuState {
     Hidden,
 }
 
-struct AppState {
+/// app state that is tied to the window, thus only exists after the window is created
+struct WindowState {
     world: World,
     window: Arc<Window>, // this field should be dropped after world, since world contains the surface, which references the window
     schedules: Schedules,
@@ -84,8 +96,8 @@ struct AppState {
     menu_state: MenuState,
 }
 
-impl AppState {
-    pub fn init(event_loop: &ActiveEventLoop) -> anyhow::Result<Self> {
+impl WindowState {
+    pub fn init(app_state: &AppState, event_loop: &ActiveEventLoop) -> anyhow::Result<Self> {
         let window_attributes = WindowAttributes::default()
             .with_title("marigold renderer")
             .with_name("marigold", "");
@@ -95,7 +107,10 @@ impl AppState {
         let mut world = World::new();
         let mut schedules = Schedules::default();
 
-        let surface_state = pollster::block_on(SurfaceState::new(window.clone()))?;
+        let surface_state = pollster::block_on(SurfaceState::new(
+            app_state.instance.clone(),
+            window.clone(),
+        ))?;
         let egui_render_state = EguiRenderState::new(
             &surface_state.gpu.device,
             surface_state.config.format,
@@ -125,13 +140,14 @@ impl AppState {
 }
 
 pub struct App {
-    state: Option<AppState>,
+    app_state: AppState,
+    window_state: Option<WindowState>,
 }
 
 impl ApplicationHandler for App {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
-        if self.state.is_none() {
-            self.state = Some(AppState::init(event_loop).unwrap());
+        if self.window_state.is_none() {
+            self.window_state = Some(WindowState::init(&self.app_state, event_loop).unwrap());
         }
     }
 
@@ -142,13 +158,13 @@ impl ApplicationHandler for App {
         event: winit::event::DeviceEvent,
     ) {
         #[allow(unused)]
-        let Some(AppState {
+        let Some(WindowState {
             window,
             world,
             schedules,
             focus_state,
             menu_state,
-        }) = &mut self.state
+        }) = &mut self.window_state
         else {
             return;
         };
@@ -170,13 +186,13 @@ impl ApplicationHandler for App {
         window_id: winit::window::WindowId,
         event: winit::event::WindowEvent,
     ) {
-        let Some(AppState {
+        let Some(WindowState {
             window,
             world,
             schedules,
             focus_state,
             menu_state,
-        }) = &mut self.state
+        }) = &mut self.window_state
         else {
             return;
         };
@@ -294,21 +310,15 @@ impl ApplicationHandler for App {
 
                 let frame = match surface_state.begin_frame() {
                     Ok(r) => r,
-                    Err(
-                        wgpu::SurfaceError::Lost
-                        | wgpu::SurfaceError::Outdated
-                        | wgpu::SurfaceError::Other,
-                    ) => {
-                        log::warn!("Unable to get surface handle, reconfiguring");
+                    Err(FrameError::NeedsReconfigure) => {
                         surface_state.reconfigure_surface();
                         return;
                     }
-                    Err(wgpu::SurfaceError::Timeout) => {
-                        log::warn!("Surface timeout, skipping frame");
+                    Err(FrameError::SkipFrame) => {
                         return;
                     }
-                    Err(wgpu::SurfaceError::OutOfMemory) => {
-                        log::error!("Out of memory, exiting");
+                    Err(FrameError::Unrecoverable) => {
+                        log::info!("exiting window event loop");
                         event_loop.exit();
                         return;
                     }
