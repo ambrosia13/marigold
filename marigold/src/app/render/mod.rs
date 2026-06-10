@@ -26,6 +26,9 @@ pub const WGPU_LIMITS: wgpu::Limits = wgpu::Limits {
     max_storage_buffer_binding_size: 1073741820,
     // https://vulkan.gpuinfo.org/displaycoreproperty.php?core=1.3&name=maxBufferSize&platform=all
     max_buffer_size: 2147483648,
+    // https://vulkan.gpuinfo.org/displaydevicelimit.php?name=maxBoundDescriptorSets&platform=all
+    // safe to increase to 8, keep to 6 for now
+    max_bind_groups: 6,
     ..wgpu::Limits::defaults()
 };
 
@@ -161,7 +164,7 @@ impl SurfaceState {
                 .copied()
                 .unwrap_or(wgpu::PresentMode::Fifo),
             alpha_mode: surface_caps.alpha_modes[0],
-            desired_maximum_frame_latency: 2,
+            desired_maximum_frame_latency: 3,
             view_formats: vec![],
         };
 

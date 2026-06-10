@@ -33,8 +33,8 @@ void compute(
     uniform ParameterBlock<Background> background,
     uniform ParameterBlock<Scene> scene,
     uniform ParameterBlock<GeometryTextures> textures,
-    // uniform ParameterBlock<AtmosphereParams> atmosphereParams,
-    // uniform ParameterBlock<AtmosphereLuts> atmosphereLuts,
+    uniform ParameterBlock<AtmosphereParams> atmosphereParams,
+    uniform ParameterBlock<AtmosphereLuts> atmosphereLuts,
 
     uint3 globalInvocationId: SV_DispatchThreadID,
     uint3 localInvocationId: SV_GroupThreadID,
@@ -93,11 +93,23 @@ void compute(
 
     uint bounces = 5;
     for (uint i = 0; i < bounces; i++) {
-        Hit hit = scene.raytraceWorld<true>(ray);
+        Hit hit = scene.raytraceWorld<false>(ray);
 
         if (!hit.success) {
             radiance += throughput * background.texture.SampleLevel(background.sampler, ray.dir, 0).rgb;
             break;
+        }
+
+        Ray sunRay = Ray(hit.biasPositionPositive(), atmosphereParams.sunDirection);
+        Hit sunHit = scene.raytraceWorld<true>(sunRay);
+
+        if (!sunHit.success) {
+            float3 atmosphereLocalPos = atmosphereParams.worldPosToLocalPos(hit.position);
+            float3 sunTransmittance = atmosphereParams.getValFromTLUT(atmosphereLuts.sampler, atmosphereLuts.transmittance, atmosphereLocalPos, atmosphereParams.sunDirection);
+            float3 sunEmission = sunTransmittance * atmosphereParams.sunColor;
+            float NdotL = saturate(dot(hit.normal, atmosphereParams.sunDirection));
+
+            radiance += throughput * sunEmission * NdotL;
         }
 
         throughput *= float3(0.95); // fake albedo

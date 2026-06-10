@@ -10,8 +10,11 @@ use std::default::Default;
 
 use crate::{
     app::{
-        data::{camera::ScreenBinding, profile::GeometryPassFrametimes, scene::SceneBinding},
-        pass::background::BackgroundBinding,
+        data::{
+            atmosphere::AtmosphereBinding, camera::ScreenBinding, profile::GeometryPassFrametimes,
+            scene::SceneBinding,
+        },
+        pass::{background::BackgroundBinding, bake::AtmosphereBakePass},
         render::{FrameRecord, SurfaceState},
     },
     util,
@@ -135,6 +138,8 @@ impl GeometryCommon {
         background_binding: Res<BackgroundBinding>,
         scene_binding: Res<SceneBinding>,
         geometry_textures: Res<GeometryTextures>,
+        atmosphere_binding: Res<AtmosphereBinding>,
+        atmosphere_bake_pass: Res<AtmosphereBakePass>,
     ) {
         let gpu = &surface_state.gpu;
 
@@ -147,6 +152,8 @@ impl GeometryCommon {
                     Some(&background_binding.bind_group_layout),
                     Some(&scene_binding.bind_group_layout),
                     Some(&geometry_textures.bind_group_layout),
+                    Some(&atmosphere_binding.bind_group_layout),
+                    Some(&atmosphere_bake_pass.bind_group_layout),
                 ],
                 immediate_size: 0,
             });
@@ -198,6 +205,8 @@ pub fn draw_geometry(
     background_binding: Res<BackgroundBinding>,
     scene_binding: Res<SceneBinding>,
     geometry_textures: Res<GeometryTextures>,
+    atmosphere_binding: Res<AtmosphereBinding>,
+    atmosphere_bake_pass: Res<AtmosphereBakePass>,
 
     mut frametimes: ResMut<GeometryPassFrametimes>,
 
@@ -221,6 +230,8 @@ pub fn draw_geometry(
     compute_pass.set_bind_group(1, &background_binding.bind_group, &[]);
     compute_pass.set_bind_group(2, &scene_binding.bind_group, &[]);
     compute_pass.set_bind_group(3, &geometry_textures.bind_group, &[]);
+    compute_pass.set_bind_group(4, &atmosphere_binding.bind_group, &[]);
+    compute_pass.set_bind_group(5, &atmosphere_bake_pass.bind_group, &[]);
 
     compute_pass.set_pipeline(&active_pipeline);
 
