@@ -1,4 +1,5 @@
 #![allow(clippy::too_many_arguments)]
+#![feature(iter_intersperse)]
 
 use env_logger::Env;
 

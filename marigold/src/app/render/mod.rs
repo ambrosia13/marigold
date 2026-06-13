@@ -1,7 +1,23 @@
 use std::{borrow::Cow, default::Default, sync::Arc};
 
 use bevy_ecs::resource::Resource;
+use vulkano::{
+    VulkanLibrary,
+    device::{Device, Queue, physical::PhysicalDevice},
+    image::{Image, view::ImageView},
+    instance::{
+        Instance, InstanceCreateFlags, InstanceCreateInfo, InstanceExtensions,
+        debug::{
+            DebugUtilsMessageSeverity, DebugUtilsMessageType, DebugUtilsMessengerCallback,
+            DebugUtilsMessengerCallbackData, DebugUtilsMessengerCallbackLabelIter,
+            DebugUtilsMessengerCreateInfo, ValidationFeatureEnable,
+        },
+    },
+    swapchain::{Surface, Swapchain},
+};
 use winit::{dpi::PhysicalSize, event_loop::EventLoop, window::Window};
+
+use crate::util;
 
 #[expect(unused)]
 pub mod debug;
@@ -32,36 +48,109 @@ pub const WGPU_LIMITS: wgpu::Limits = wgpu::Limits {
     ..wgpu::Limits::defaults()
 };
 
+fn labels_to_string(iter: DebugUtilsMessengerCallbackLabelIter<'_>) -> String {
+    iter.map(|l| format!("'{}'", l.label_name))
+        .intersperse(", ".into())
+        .collect()
+}
+
+const fn object_type_to_str(int: i32) -> &'static str {
+    match int {
+        0 => "UNKNOWN",
+        1 => "INSTANCE",
+        2 => "PHYSICAL_DEVICE",
+        3 => "DEVICE",
+        4 => "QUEUE",
+        5 => "SEMAPHORE",
+        6 => "COMMAND_BUFFER",
+        7 => "FENCE",
+        8 => "DEVICE_MEMORY",
+        9 => "BUFFER",
+        10 => "IMAGE",
+        11 => "EVENT",
+        12 => "QUERY_POOL",
+        13 => "BUFFER_VIEW",
+        14 => "IMAGE_VIEW",
+        15 => "SHADER_MODULE",
+        16 => "PIPELINE_CACHE",
+        17 => "PIPELINE_LAYOUT",
+        18 => "RENDER_PASS",
+        19 => "PIPELINE",
+        20 => "DESCRIPTOR_SET_LAYOUT",
+        21 => "SAMPLER",
+        22 => "DESCRIPTOR_POOL",
+        23 => "DESCRIPTOR_SET",
+        24 => "FRAMEBUFFER",
+        25 => "COMMAND_POOL",
+        _ => "UNKNOWN_OBJECT_TYPE",
+    }
+}
+
+fn debug_messenger(
+    severity: DebugUtilsMessageSeverity,
+    ty: DebugUtilsMessageType,
+    data: DebugUtilsMessengerCallbackData<'_>,
+) {
+    match severity {
+        DebugUtilsMessageSeverity::VERBOSE => {}
+        DebugUtilsMessageSeverity::INFO => {}
+        _ => {
+            // error or warning, so log it
+
+            let mut header = String::from("Vulkan debug message");
+
+            if ty.contains(DebugUtilsMessageType::GENERAL) {
+                header += " [General] ";
+            }
+
+            if ty.contains(DebugUtilsMessageType::PERFORMANCE) {
+                header += " [Performance] ";
+            }
+
+            if ty.contains(DebugUtilsMessageType::VALIDATION) {
+                header += " [Validation] ";
+            }
+
+            let message = format!(
+                "{}:\n\
+                - Queues: {}\n\
+                - Command buffers: {}\n\
+                - Objects: {}\n\
+                - ID: ({}) {}\n\
+                - Message: '{}'",
+                header,
+                labels_to_string(data.queue_labels),
+                labels_to_string(data.cmd_buf_labels),
+                data.objects
+                    .map(|o| format!(
+                        "'{}' ({}, 0x{:x})",
+                        o.object_name.unwrap_or("no label"),
+                        object_type_to_str(o.object_type.as_raw()),
+                        o.object_handle
+                    ))
+                    .intersperse(", ".into())
+                    .collect::<String>(),
+                data.message_id_number,
+                data.message_id_name.unwrap_or(""),
+                data.message
+            );
+
+            if severity == DebugUtilsMessageSeverity::WARNING {
+                log::warn!("{}", message);
+            } else {
+                log::error!("{}", message);
+            }
+        }
+    }
+}
+
 #[derive(Clone)]
 #[allow(unused)]
 pub struct GpuHandle {
-    pub instance: wgpu::Instance,
-    pub adapter: wgpu::Adapter,
-    pub device: wgpu::Device,
-    pub queue: wgpu::Queue,
-}
-
-impl GpuHandle {
-    pub fn create_shader_module(&self, label: &str, source: Cow<'_, [u32]>) -> wgpu::ShaderModule {
-        // #[cfg(debug_assertions)]
-        // return self
-        //     .device
-        //     .create_shader_module(wgpu::ShaderModuleDescriptor {
-        //         label: Some(label),
-        //         source: wgpu::ShaderSource::SpirV(source),
-        //     });
-
-        // // // use passthrough shader modules when in release mode so we don't needlessly send spirv shaders through naga
-        // #[cfg(not(debug_assertions))]
-        unsafe {
-            self.device
-                .create_shader_module_passthrough(wgpu::ShaderModuleDescriptorPassthrough {
-                    label: Some(label),
-                    spirv: Some(source),
-                    ..Default::default()
-                })
-        }
-    }
+    pub instance: Arc<Instance>,
+    pub physical_device: Arc<PhysicalDevice>,
+    pub device: Arc<Device>,
+    pub queue: Arc<Queue>,
 }
 
 pub enum FrameError {
@@ -80,8 +169,11 @@ pub struct FrameRecord {
 
 #[derive(Resource)]
 pub struct SurfaceState {
-    pub surface: wgpu::Surface<'static>,
-    pub config: wgpu::SurfaceConfiguration,
+    pub surface: Arc<Surface>,
+
+    pub swapchain: Arc<Swapchain>,
+    pub swapchain_images: Vec<Arc<Image>>,
+    pub swapchain_views: Vec<Arc<ImageView>>,
 
     pub viewport_size: PhysicalSize<u32>,
     pub window: Arc<Window>,
@@ -89,33 +181,99 @@ pub struct SurfaceState {
     pub gpu: GpuHandle,
 }
 
+pub struct SurfaceStatePreInit {
+    library: Arc<VulkanLibrary>,
+    instance: Arc<Instance>,
+}
+
 impl SurfaceState {
-    pub fn create_instance(event_loop: &EventLoop<()>) -> wgpu::Instance {
-        let mut instance_flags = wgpu::InstanceFlags::empty();
+    pub fn pre_init(event_loop: &EventLoop<()>) -> SurfaceStatePreInit {
+        let library = VulkanLibrary::new().expect("couldn't load vulkan library");
 
-        // enable vulkan validation layer in debug builds
-        #[cfg(debug_assertions)]
-        {
-            use crate::util::get_env_flag;
+        let validation_layer = library
+            .layer_properties()
+            .unwrap()
+            .map(|layer| layer.name().to_string())
+            .find(|layer| layer == "VK_LAYER_KHRONOS_validation")
+            .filter(|_| !util::get_env_flag("DISABLE_VALIDATION_LAYERS"));
 
-            if get_env_flag("DISABLE_VALIDATION_LAYERS") {
-                // enable debug info, but not full validation
-                instance_flags |= wgpu::InstanceFlags::DEBUG;
-            } else {
-                instance_flags |= wgpu::InstanceFlags::debugging();
-            }
+        let validation_enabled = validation_layer.is_some();
+
+        if cfg!(debug_assertions) && !validation_enabled {
+            log::warn!(
+                "Running a debug build, but no vulkan validation layer installed, so important gpu validation may be missing"
+            );
         }
 
-        wgpu::Instance::new(wgpu::InstanceDescriptor {
-            backends: wgpu::Backends::VULKAN,
-            flags: instance_flags,
-            ..wgpu::InstanceDescriptor::new_with_display_handle(Box::new(
-                event_loop.owned_display_handle(),
-            ))
-        })
+        let surface_extensions = Surface::required_extensions(event_loop).unwrap();
+
+        let user_callback = unsafe { DebugUtilsMessengerCallback::new(debug_messenger) };
+
+        // this will only be used in debug builds
+        let debug_messenger_create_info = DebugUtilsMessengerCreateInfo {
+            message_type: DebugUtilsMessageType::GENERAL
+                | DebugUtilsMessageType::PERFORMANCE
+                | DebugUtilsMessageType::VALIDATION,
+            ..DebugUtilsMessengerCreateInfo::user_callback(user_callback)
+        };
+
+        let instance = Instance::new(
+            library.clone(),
+            InstanceCreateInfo {
+                // allow running on metal devices
+                flags: InstanceCreateFlags::ENUMERATE_PORTABILITY,
+                enabled_layers: validation_layer.into_iter().collect(),
+                enabled_extensions: InstanceExtensions {
+                    khr_surface: true,
+                    ext_debug_utils: cfg!(debug_assertions),
+                    ..surface_extensions
+                },
+                debug_utils_messengers: if cfg!(debug_assertions) {
+                    vec![debug_messenger_create_info.clone()]
+                } else {
+                    vec![]
+                },
+                enabled_validation_features: if validation_enabled {
+                    vec![
+                        ValidationFeatureEnable::BestPractices,
+                        ValidationFeatureEnable::SynchronizationValidation,
+                    ]
+                } else {
+                    vec![]
+                },
+                disabled_validation_features: vec![],
+                ..InstanceCreateInfo::application_from_cargo_toml()
+            },
+        )
+        .expect("couldn't create vulkan instance");
+
+        SurfaceStatePreInit { library, instance }
+
+        // let mut instance_flags = wgpu::InstanceFlags::empty();
+
+        // // enable vulkan validation layer in debug builds
+        // #[cfg(debug_assertions)]
+        // {
+        //     use crate::util::get_env_flag;
+
+        //     if get_env_flag("DISABLE_VALIDATION_LAYERS") {
+        //         // enable debug info, but not full validation
+        //         instance_flags |= wgpu::InstanceFlags::DEBUG;
+        //     } else {
+        //         instance_flags |= wgpu::InstanceFlags::debugging();
+        //     }
+        // }
+
+        // wgpu::Instance::new(wgpu::InstanceDescriptor {
+        //     backends: wgpu::Backends::VULKAN,
+        //     flags: instance_flags,
+        //     ..wgpu::InstanceDescriptor::new_with_display_handle(Box::new(
+        //         event_loop.owned_display_handle(),
+        //     ))
+        // })
     }
 
-    pub async fn new(instance: wgpu::Instance, window: Arc<Window>) -> anyhow::Result<Self> {
+    pub async fn new(pre_init: SurfaceStatePreInit, window: Arc<Window>) -> anyhow::Result<Self> {
         let viewport_size = window.inner_size();
 
         let surface = instance.create_surface(window.clone())?;

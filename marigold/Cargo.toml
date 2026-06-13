@@ -10,8 +10,7 @@ rayon = "1.11.0"
 
 [dependencies]
 # rendering
-wgpu = { version = "29.0.3", features = ["vulkan-portability", "spirv"] }
-ash = "0.38" # for wgpu hal stuff
+vulkano = { version = "0.35.2" }
 winit = "0.30.13"
 
 # game engine stuff
