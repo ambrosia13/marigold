@@ -15,7 +15,7 @@ use crate::{
     app::{
         data::{profile::FpsCounter, time::Time},
         messages::{ExitMessage, KeyInputMessage, MouseInputMessage, MouseMotionMessage},
-        render::{FrameError, FrameRecord, SurfaceState},
+        render::{FrameError, FrameRecord, GpuHandle, GpuHandlePreInit, SurfaceState},
         schedules::Schedules,
     },
     egui::EguiRenderState,
@@ -55,20 +55,73 @@ pub fn run() {
         .build()
         .expect("Couldn't create window event loop");
 
-    let instance = SurfaceState::create_instance(&event_loop);
-    let app_state = AppState { instance };
+    let gpu_pre_init = GpuHandle::pre_init(&event_loop).expect("failed to instantiate vulkan");
+    let app_state = AppState::PreInit { gpu_pre_init };
 
-    let mut app = App {
-        app_state,
-        window_state: None,
-    };
+    let mut app = App { app_state };
 
     event_loop.run_app(&mut app).unwrap();
 }
 
 /// app state that is tied to the event loop (i.e. not tied to the window)
-struct AppState {
-    instance: wgpu::Instance,
+enum AppState {
+    // the state before the window is created
+    PreInit {
+        gpu_pre_init: GpuHandlePreInit,
+    },
+    // the state after the window is created (basically everything)
+    Window {
+        world: World,
+        window: Arc<Window>, // this field should be dropped after world, since world contains the surface, which references the window
+        schedules: Schedules,
+        focus_state: FocusState,
+        menu_state: MenuState,
+    },
+}
+
+impl AppState {
+    pub fn initialize(&mut self, event_loop: &ActiveEventLoop) -> anyhow::Result<()> {
+        assert!(matches!(self, AppState::PreInit { .. }));
+
+        let AppState::PreInit { gpu_pre_init } = self else {
+            unreachable!()
+        };
+
+        let window_attributes = WindowAttributes::default()
+            .with_title("marigold renderer")
+            .with_name("marigold", "");
+
+        let window = Arc::new(event_loop.create_window(window_attributes)?);
+
+        let mut world = World::new();
+        let mut schedules = Schedules::default();
+
+        let (gpu, surface) = GpuHandle::new(gpu_pre_init.clone(), window.clone())?;
+
+        let surface_state = SurfaceState::new(&gpu, surface, window.clone())?;
+
+        // initial world data
+        world.insert_resource(gpu);
+        world.insert_non_send_resource(surface_state);
+
+        // run startup systems
+        schedules.on_init_message_setup.run(&mut world);
+        schedules.on_init_app_setup.run(&mut world);
+        schedules.on_init_render_setup.run(&mut world);
+        schedules.on_init_menu_setup.run(&mut world);
+
+        let new_state = AppState::Window {
+            window,
+            world,
+            schedules,
+            focus_state: Default::default(),
+            menu_state: Default::default(),
+        };
+
+        std::mem::replace(self, new_state);
+
+        Ok(())
+    }
 }
 
 // toggle with Esc
@@ -87,67 +140,14 @@ enum MenuState {
     Hidden,
 }
 
-/// app state that is tied to the window, thus only exists after the window is created
-struct WindowState {
-    world: World,
-    window: Arc<Window>, // this field should be dropped after world, since world contains the surface, which references the window
-    schedules: Schedules,
-    focus_state: FocusState,
-    menu_state: MenuState,
-}
-
-impl WindowState {
-    pub fn init(app_state: &AppState, event_loop: &ActiveEventLoop) -> anyhow::Result<Self> {
-        let window_attributes = WindowAttributes::default()
-            .with_title("marigold renderer")
-            .with_name("marigold", "");
-
-        let window = Arc::new(event_loop.create_window(window_attributes)?);
-
-        let mut world = World::new();
-        let mut schedules = Schedules::default();
-
-        let surface_state = pollster::block_on(SurfaceState::new(
-            app_state.instance.clone(),
-            window.clone(),
-        ))?;
-        let egui_render_state = EguiRenderState::new(
-            &surface_state.gpu.device,
-            surface_state.config.format,
-            None,
-            1,
-            &window,
-        );
-
-        // initial world data
-        world.insert_non_send_resource(egui_render_state);
-        world.insert_resource(surface_state);
-
-        // run startup systems
-        schedules.on_init_message_setup.run(&mut world);
-        schedules.on_init_app_setup.run(&mut world);
-        schedules.on_init_render_setup.run(&mut world);
-        schedules.on_init_menu_setup.run(&mut world);
-
-        Ok(Self {
-            window,
-            world,
-            schedules,
-            focus_state: Default::default(),
-            menu_state: Default::default(),
-        })
-    }
-}
-
 pub struct App {
     app_state: AppState,
-    window_state: Option<WindowState>,
 }
 
 impl ApplicationHandler for App {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
-        if self.window_state.is_none() {
-            self.window_state = Some(WindowState::init(&self.app_state, event_loop).unwrap());
+        if matches!(self.app_state, AppState::PreInit { .. }) {
+            self.app_state.initialize(event_loop).unwrap();
         }
     }
 
@@ -158,13 +158,13 @@ impl ApplicationHandler for App {
         event: winit::event::DeviceEvent,
     ) {
         #[allow(unused)]
-        let Some(WindowState {
+        let AppState::Window {
             window,
             world,
             schedules,
             focus_state,
             menu_state,
-        }) = &mut self.window_state
+        } = &mut self.app_state
         else {
             return;
         };
@@ -186,13 +186,14 @@ impl ApplicationHandler for App {
         window_id: winit::window::WindowId,
         event: winit::event::WindowEvent,
     ) {
-        let Some(WindowState {
+        #[allow(unused)]
+        let AppState::Window {
             window,
             world,
             schedules,
             focus_state,
             menu_state,
-        }) = &mut self.window_state
+        } = &mut self.app_state
         else {
             return;
         };
@@ -277,7 +278,7 @@ impl ApplicationHandler for App {
             // lifecycle events
             WindowEvent::CloseRequested => event_loop.exit(),
             WindowEvent::Resized(size) => {
-                let mut surface_state = world.resource_mut::<SurfaceState>();
+                let mut surface_state = world.non_send_resource_mut::<SurfaceState>();
                 surface_state.resize(size);
 
                 schedules.on_resize.run(world);
@@ -305,33 +306,32 @@ impl ApplicationHandler for App {
                 schedules.on_redraw_pre_frame.run(world);
 
                 // initialize frame
-                let surface_state = world.resource::<SurfaceState>();
+                let mut surface_state = world.non_send_resource_mut::<SurfaceState>();
                 let gpu = surface_state.gpu.clone();
 
                 let frame = match surface_state.begin_frame() {
                     Ok(r) => r,
-                    Err(FrameError::NeedsReconfigure) => {
-                        surface_state.reconfigure_surface();
-                        return;
-                    }
                     Err(FrameError::SkipFrame) => {
                         return;
                     }
-                    Err(FrameError::Unrecoverable) => {
-                        log::info!("exiting window event loop");
+                    Err(e) => {
+                        log::info!(
+                            "exiting window event loop due to unrecoverable error: {:?}",
+                            e
+                        );
                         event_loop.exit();
                         return;
                     }
                 };
 
-                // need lifetime/borrowing shenanigans because we manually render egui rather than put it in a system
-                let surface_texture_view = frame.surface_texture_view.clone();
+                // // need lifetime/borrowing shenanigans because we manually render egui rather than put it in a system
+                // let surface_texture_view = frame.surface_texture_view.clone();
 
-                let mut egui_render_state = world.non_send_resource_mut::<EguiRenderState>();
-                egui_render_state.begin_frame(window);
+                // let mut egui_render_state = world.non_send_resource_mut::<EguiRenderState>();
+                // egui_render_state.begin_frame(window);
 
                 // pass the frame ownership over to the world
-                world.insert_resource(frame);
+                world.insert_non_send_resource(frame);
 
                 // render the frame
                 schedules.on_redraw_render.run(world);
@@ -342,25 +342,25 @@ impl ApplicationHandler for App {
                 }
 
                 // now that the frame has been rendered, take frame data back so we can draw egui on top
-                let mut frame = world.remove_resource::<FrameRecord>().unwrap();
+                let mut frame = world.remove_non_send_resource::<FrameRecord>().unwrap();
 
-                let mut egui_render_state = world.non_send_resource_mut::<EguiRenderState>();
-                egui_render_state.end_frame_and_draw(
-                    &gpu.device,
-                    &gpu.queue,
-                    &mut frame.encoder,
-                    window,
-                    &surface_texture_view,
-                    egui_wgpu::ScreenDescriptor {
-                        size_in_pixels: [window.inner_size().width, window.inner_size().height],
-                        pixels_per_point: window.scale_factor() as f32,
-                    },
-                );
+                // let mut egui_render_state = world.non_send_resource_mut::<EguiRenderState>();
+                // egui_render_state.end_frame_and_draw(
+                //     &gpu.device,
+                //     &gpu.queue,
+                //     &mut frame.encoder,
+                //     window,
+                //     &surface_texture_view,
+                //     egui_wgpu::ScreenDescriptor {
+                //         size_in_pixels: [window.inner_size().width, window.inner_size().height],
+                //         pixels_per_point: window.scale_factor() as f32,
+                //     },
+                // );
 
                 // clean up and present the frame
                 window.pre_present_notify();
 
-                let surface_state = world.resource::<SurfaceState>();
+                let mut surface_state = world.non_send_resource_mut::<SurfaceState>();
                 surface_state.finish_frame(frame);
 
                 // run the post-render systems

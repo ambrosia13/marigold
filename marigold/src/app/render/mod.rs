@@ -1,13 +1,16 @@
-use std::{borrow::Cow, default::Default, sync::Arc};
+use std::{default::Default, sync::Arc};
 
 use anyhow::anyhow;
 use bevy_ecs::resource::Resource;
 use vulkano::{
     Validated, VulkanError, VulkanLibrary,
-    command_buffer::{AutoCommandBufferBuilder, PrimaryAutoCommandBuffer},
+    command_buffer::{
+        AutoCommandBufferBuilder, PrimaryAutoCommandBuffer,
+        allocator::StandardCommandBufferAllocator,
+    },
     device::{
-        Device, DeviceCreateInfo, DeviceExtensions, DeviceFeatures, DeviceProperties, Queue,
-        QueueCreateFlags, QueueCreateInfo, QueueFlags,
+        Device, DeviceCreateInfo, DeviceExtensions, DeviceFeatures, Queue, QueueCreateInfo,
+        QueueFlags,
         physical::{PhysicalDevice, PhysicalDeviceType},
     },
     format::Format,
@@ -20,13 +23,11 @@ use vulkano::{
             DebugUtilsMessengerCreateInfo, ValidationFeatureEnable,
         },
     },
-    swapchain::{
-        AcquireNextImageInfo, PresentMode, Surface, Swapchain, SwapchainAcquireFuture,
-        SwapchainCreateInfo,
-    },
-    sync::{GpuFuture, future::FenceSignalFuture},
+    memory::allocator::StandardMemoryAllocator,
+    swapchain::{PresentMode, Surface, Swapchain, SwapchainCreateInfo, SwapchainPresentInfo},
+    sync::{self, GpuFuture},
 };
-use winit::{dpi::PhysicalSize, event_loop::EventLoop, window::Window};
+use winit::{event_loop::EventLoop, window::Window};
 
 use crate::util;
 
@@ -131,55 +132,24 @@ fn debug_messenger(
 }
 
 #[derive(Clone)]
-#[allow(unused)]
+pub struct GpuHandlePreInit {
+    library: Arc<VulkanLibrary>,
+    instance: Arc<Instance>,
+}
+
+#[derive(Resource, Clone)]
 pub struct GpuHandle {
     pub instance: Arc<Instance>,
     pub physical_device: Arc<PhysicalDevice>,
     pub device: Arc<Device>,
     pub queue: Arc<Queue>,
+
+    pub memory_allocator: Arc<StandardMemoryAllocator>,
+    pub cmd_buffer_allocator: Arc<StandardCommandBufferAllocator>,
 }
 
-pub enum FrameError {
-    NeedsReconfigure,
-    SkipFrame,
-    Unrecoverable,
-    Other(VulkanError),
-}
-
-pub struct FrameRecord {
-    pub builder: AutoCommandBufferBuilder<PrimaryAutoCommandBuffer>,
-    pub acquire_future: SwapchainAcquireFuture,
-    pub image_index: u32,
-}
-
-struct FrameContext {
-    fence: Option<Arc<dyn GpuFuture + Send + Sync + 'static>>,
-}
-
-#[derive(Resource)]
-pub struct SurfaceState {
-    pub surface: Arc<Surface>,
-
-    pub swapchain: Arc<Swapchain>,
-    pub swapchain_images: Vec<Arc<Image>>,
-    pub swapchain_views: Vec<Arc<ImageView>>,
-
-    pub frames_in_flight: Vec<FrameContext>,
-    pub current_frame: usize,
-
-    pub viewport_size: PhysicalSize<u32>,
-    pub window: Arc<Window>,
-
-    pub gpu: GpuHandle,
-}
-
-pub struct SurfaceStatePreInit {
-    library: Arc<VulkanLibrary>,
-    instance: Arc<Instance>,
-}
-
-impl SurfaceState {
-    pub fn pre_init(event_loop: &EventLoop<()>) -> anyhow::Result<SurfaceStatePreInit> {
+impl GpuHandle {
+    pub fn pre_init(event_loop: &EventLoop<()>) -> anyhow::Result<GpuHandlePreInit> {
         let library = VulkanLibrary::new()?;
 
         let validation_layer = library
@@ -238,19 +208,21 @@ impl SurfaceState {
             },
         )?;
 
-        Ok(SurfaceStatePreInit { library, instance })
+        Ok(GpuHandlePreInit { library, instance })
     }
 
-    fn score_physical_device(pd: &PhysicalDevice) {}
-
-    pub fn new(pre_init: SurfaceStatePreInit, window: Arc<Window>) -> anyhow::Result<Self> {
-        let SurfaceStatePreInit { instance, .. } = pre_init;
+    pub fn new(
+        pre_init: GpuHandlePreInit,
+        window: Arc<Window>,
+    ) -> anyhow::Result<(Self, Arc<Surface>)> {
+        let GpuHandlePreInit { instance, .. } = pre_init;
 
         let surface = Surface::from_window(instance.clone(), window.clone())?;
 
         let device_extensions = DeviceExtensions {
             khr_swapchain: true,
             ext_descriptor_buffer: true,
+            ext_descriptor_indexing: true,
             ..DeviceExtensions::empty()
         };
 
@@ -308,39 +280,49 @@ impl SurfaceState {
         )?;
 
         let queue = queues.next().ok_or(anyhow!("no suitable queues found"))?;
-        let (swapchain, swapchain_images, swapchain_views) = Self::create_swapchain(
-            physical_device.clone(),
+
+        let memory_allocator = Arc::new(StandardMemoryAllocator::new_default(device.clone()));
+
+        let cmd_buffer_allocator = Arc::new(StandardCommandBufferAllocator::new(
             device.clone(),
-            surface.clone(),
-            window.clone(),
-        )?;
+            Default::default(),
+        ));
 
-        let num_frames_in_flight = 3;
-
-        Ok(Self {
-            surface,
-            swapchain,
-            swapchain_images,
-            swapchain_views,
-            viewport_size: window.inner_size(),
-            window,
-            gpu: GpuHandle {
+        Ok((
+            Self {
                 instance,
                 physical_device,
                 device,
                 queue,
+                memory_allocator,
+                cmd_buffer_allocator,
             },
-        })
+            surface,
+        ))
     }
+}
 
+pub struct SwapchainState {
+    pub inner: Arc<Swapchain>,
+    pub images: Vec<Arc<Image>>,
+    pub views: Vec<Arc<ImageView>>,
+    pub format: Format,
+
+    surface: Arc<Surface>,
+    window: Arc<Window>,
+
+    gpu: GpuHandle,
+}
+
+impl SwapchainState {
     fn get_swapchain_create_info(
-        physical_device: Arc<PhysicalDevice>,
+        gpu: &GpuHandle,
         surface: Arc<Surface>,
         window: Arc<Window>,
-    ) -> anyhow::Result<SwapchainCreateInfo> {
-        let caps = physical_device
-            .surface_capabilities(&surface, Default::default())
-            .expect("couldn't get surface capabililities");
+    ) -> anyhow::Result<(SwapchainCreateInfo, Format)> {
+        let caps = gpu
+            .physical_device
+            .surface_capabilities(&surface, Default::default())?;
 
         let composite_alpha = caps
             .supported_composite_alpha
@@ -348,15 +330,21 @@ impl SurfaceState {
             .next()
             .ok_or(anyhow!("no supported composite alpha modes"))?;
 
-        let formats = physical_device.surface_formats(&surface, Default::default())?;
+        let formats = gpu
+            .physical_device
+            .surface_formats(&surface, Default::default())?;
 
-        let present_modes = physical_device.surface_present_modes(&surface, Default::default())?;
+        let present_modes = gpu
+            .physical_device
+            .surface_present_modes(&surface, Default::default())?;
 
-        let present_mode = if present_modes.contains(&PresentMode::Mailbox) {
-            PresentMode::Mailbox
-        } else {
-            PresentMode::Fifo
-        };
+        let present_mode_priority = [PresentMode::Mailbox, PresentMode::Fifo];
+
+        let present_mode = present_mode_priority
+            .iter()
+            .find(|pm| present_modes.contains(pm))
+            .copied()
+            .unwrap(); // safe to unwrap bc fifo is always supported
 
         let surface_format = formats
             .iter()
@@ -365,147 +353,203 @@ impl SurfaceState {
             .unwrap_or(&formats[0])
             .0;
 
-        Ok(SwapchainCreateInfo {
-            min_image_count: (caps.min_image_count + 1)
-                .min(caps.max_image_count.unwrap_or(u32::MAX)),
-            image_format: surface_format,
-            image_extent: window.inner_size().into(),
-            image_usage: ImageUsage::COLOR_ATTACHMENT,
-            present_mode,
-            composite_alpha,
-            ..Default::default()
+        Ok((
+            SwapchainCreateInfo {
+                min_image_count: (caps.min_image_count + 1)
+                    .min(caps.max_image_count.unwrap_or(u32::MAX)),
+                image_format: surface_format,
+                image_extent: window.inner_size().into(),
+                image_usage: ImageUsage::COLOR_ATTACHMENT,
+                present_mode,
+                composite_alpha,
+                ..Default::default()
+            },
+            surface_format,
+        ))
+    }
+
+    pub fn new(
+        gpu: &GpuHandle,
+        surface: Arc<Surface>,
+        window: Arc<Window>,
+    ) -> anyhow::Result<Self> {
+        let (create_info, format) =
+            Self::get_swapchain_create_info(gpu, surface.clone(), window.clone())?;
+
+        let (swapchain, images) = Swapchain::new(gpu.device.clone(), surface.clone(), create_info)?;
+
+        let views = images
+            .iter()
+            .map(|img| ImageView::new_default(img.clone()))
+            .collect::<Result<Vec<_>, _>>()?;
+
+        Ok(Self {
+            inner: swapchain,
+            images,
+            views,
+            format,
+            surface,
+            window,
+            gpu: gpu.clone(),
         })
     }
 
-    fn create_swapchain(
-        physical_device: Arc<PhysicalDevice>,
-        device: Arc<Device>,
-        surface: Arc<Surface>,
-        window: Arc<Window>,
-    ) -> anyhow::Result<(Arc<Swapchain>, Vec<Arc<Image>>, Vec<Arc<ImageView>>)> {
-        let (swapchain, images) = Swapchain::new(
-            device.clone(),
-            surface.clone(),
-            Self::get_swapchain_create_info(physical_device, surface, window)?,
-        )?;
+    pub fn recreate(&mut self) -> anyhow::Result<()> {
+        let (create_info, format) =
+            Self::get_swapchain_create_info(&self.gpu, self.surface.clone(), self.window.clone())?;
 
-        let image_views = images
+        let (new_swapchain, new_images) = self.inner.recreate(create_info)?;
+
+        self.inner = new_swapchain;
+        self.images = new_images;
+
+        self.views = self
+            .images
             .iter()
             .map(|img| ImageView::new_default(img.clone()))
             .collect::<Result<Vec<_>, _>>()?;
 
-        Ok((swapchain, images, image_views))
-    }
-
-    pub fn recreate_swapchain(&mut self) -> anyhow::Result<()> {
-        let (new_swapchain, new_images) =
-            self.swapchain.recreate(Self::get_swapchain_create_info(
-                self.gpu.physical_device.clone(),
-                self.surface.clone(),
-                self.window.clone(),
-            )?)?;
-
-        self.swapchain = new_swapchain;
-        self.swapchain_images = new_images;
-
-        self.swapchain_views = self
-            .swapchain_images
-            .iter()
-            .map(|img| ImageView::new_default(img.clone()))
-            .collect::<Result<Vec<_>, _>>()?;
+        self.format = format;
 
         Ok(())
+    }
+}
+
+// non-send resource
+pub struct SurfaceState {
+    pub surface: Arc<Surface>,
+    pub swapchain: SwapchainState,
+    pub window: Arc<Window>,
+
+    pub gpu: GpuHandle,
+
+    swapchain_needs_recreate: bool,
+    previous_frame_end: Option<Box<dyn GpuFuture>>,
+}
+
+impl SurfaceState {
+    pub fn new(
+        gpu: &GpuHandle,
+        surface: Arc<Surface>,
+        window: Arc<Window>,
+    ) -> anyhow::Result<Self> {
+        let swapchain = SwapchainState::new(gpu, surface.clone(), window.clone())?;
+
+        Ok(Self {
+            surface,
+            swapchain,
+            window,
+            gpu: gpu.clone(),
+            swapchain_needs_recreate: false,
+            previous_frame_end: Some(sync::now(gpu.device.clone()).boxed()),
+        })
     }
 
     pub fn resize(&mut self, new_size: winit::dpi::PhysicalSize<u32>) -> anyhow::Result<()> {
         if new_size.width > 0 && new_size.height > 0 {
-            self.viewport_size = new_size;
-            self.recreate_swapchain()?;
+            self.swapchain_needs_recreate = true; // enqueue it rather than do it immediately
+        // self.swapchain.recreate()?;
+        // self.swapchain_needs_recreate = false; // clear this flag if it was already set
+        } else {
+            log::error!("invalid window resize: {:?}, skipping", new_size);
         }
 
         Ok(())
     }
 
-    pub fn begin_frame(&self) -> Result<FrameRecord, FrameError> {
-        let (swapchain_index, acquire_future) =
-            match vulkano::swapchain::acquire_next_image(self.swapchain.clone(), None)
+    pub fn begin_frame(&mut self) -> Result<FrameRecord, FrameError> {
+        if self.swapchain_needs_recreate {
+            self.swapchain.recreate().map_err(FrameError::Other)?;
+            self.swapchain_needs_recreate = false;
+        }
+
+        let (swapchain_image_index, suboptimal, acquire_future) =
+            match vulkano::swapchain::acquire_next_image(self.swapchain.inner.clone(), None)
                 .map_err(Validated::unwrap)
             {
-                Ok((idx, suboptimal, future)) => {
-                    if suboptimal {
-                        log::warn!(
-                            "surface was suboptimal, reconfiguring surface and skipping this frame"
-                        );
-                        return Err(FrameError::NeedsReconfigure);
-                    } else {
-                        (idx, future)
-                    }
-                }
+                Ok(r) => r,
                 Err(VulkanError::OutOfDate) => {
-                    log::warn!(
-                        "surface was outdated, reconfiguring surface and skipping this frame"
-                    );
-                    return Err(FrameError::NeedsReconfigure);
+                    log::warn!("swapchain is out of date, skipping this frame");
+                    self.swapchain_needs_recreate = true;
+                    return Err(FrameError::SkipFrame);
                 }
-                Err(e) => return Err(FrameError::Other(e)),
+                Err(e) => return Err(FrameError::Vulkan(e)),
             };
 
+        if suboptimal {
+            self.swapchain_needs_recreate = true;
+            log::warn!(
+                "Suboptimal swapchain image, queueing swapchain recreation and proceeding with frame"
+            );
+        }
+
+        // basically the vulkano equivalent of wgpu's CommandEncoder
+        let cmd_builder = AutoCommandBufferBuilder::primary(
+            self.gpu.cmd_buffer_allocator.clone(),
+            self.gpu.queue.queue_family_index(),
+            vulkano::command_buffer::CommandBufferUsage::OneTimeSubmit,
+        )
+        .map_err(Validated::unwrap)
+        .map_err(FrameError::Vulkan)?;
+
+        let future = self.previous_frame_end.take().unwrap().join(acquire_future);
+
         Ok(FrameRecord {
-            builder: todo!(),
-            acquire_future,
-            image_index: todo!(),
+            cmd_builder,
+            swapchain_image_index,
+            future: future.boxed(),
         })
-
-        // let encoder = self
-        //     .gpu
-        //     .device
-        //     .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-        //         label: Some("Frame Encoder"),
-        //     });
-
-        // let current_surface_texture = self.surface.get_current_texture();
-
-        // let surface_texture = match current_surface_texture {
-        //     wgpu::CurrentSurfaceTexture::Success(surface_texture) => surface_texture,
-        //     wgpu::CurrentSurfaceTexture::Suboptimal(_surface_texture) => {
-        //         log::warn!("surface was suboptimal, reconfiguring surface and skipping this frame");
-        //         return Err(FrameError::NeedsReconfigure);
-        //     }
-        //     wgpu::CurrentSurfaceTexture::Outdated => {
-        //         log::warn!("surface was outdated, reconfiguring surface and skipping this frame");
-        //         return Err(FrameError::NeedsReconfigure);
-        //     }
-        //     wgpu::CurrentSurfaceTexture::Timeout => {
-        //         log::warn!("surface timed out, skipping frame");
-        //         return Err(FrameError::SkipFrame);
-        //     }
-        //     wgpu::CurrentSurfaceTexture::Occluded => {
-        //         return Err(FrameError::SkipFrame);
-        //     }
-        //     wgpu::CurrentSurfaceTexture::Lost => {
-        //         log::error!("surface or device was lost, treating as unrecoverable error");
-        //         return Err(FrameError::Unrecoverable);
-        //     }
-        //     wgpu::CurrentSurfaceTexture::Validation => {
-        //         log::error!("uncaught validation error, treating as unrecoverable error");
-        //         return Err(FrameError::Unrecoverable);
-        //     }
-        // };
-
-        // let surface_texture_view = surface_texture.texture.create_view(&Default::default());
-
-        // Ok(FrameRecord {
-        //     encoder,
-        //     surface_texture,
-        //     surface_texture_view,
-        // })
     }
 
-    pub fn finish_frame(&self, frame: FrameRecord) {
-        // self.gpu
-        //     .queue
-        //     .submit(std::iter::once(frame.encoder.finish()));
+    pub fn finish_frame(&mut self, frame: FrameRecord) -> anyhow::Result<()> {
+        // we propagate this error because I think this function shouldn't have to worry about general
+        // command submission failing, just surface presentation failing?
+        let cmd_buffer = frame.cmd_builder.build()?;
 
-        // frame.surface_texture.present();
+        let future = frame
+            .future
+            // execute the commands recorded over the frame lifetime
+            .then_execute(self.gpu.queue.clone(), cmd_buffer)?
+            .then_swapchain_present(
+                self.gpu.queue.clone(),
+                SwapchainPresentInfo::swapchain_image_index(
+                    self.swapchain.inner.clone(),
+                    frame.swapchain_image_index,
+                ),
+            )
+            .then_signal_fence_and_flush();
+
+        match future.map_err(Validated::unwrap) {
+            Ok(mut future) => {
+                future.cleanup_finished();
+
+                self.previous_frame_end = Some(future.boxed());
+            }
+            Err(VulkanError::OutOfDate) => {
+                log::warn!("swapchain is out of date at the end of frame");
+                self.swapchain_needs_recreate = true;
+                self.previous_frame_end = Some(sync::now(self.gpu.device.clone()).boxed());
+            }
+            Err(e) => {
+                log::warn!("error when flushing future: {}", e);
+                self.previous_frame_end = Some(sync::now(self.gpu.device.clone()).boxed());
+            }
+        }
+
+        Ok(())
     }
+}
+
+pub struct FrameRecord {
+    pub cmd_builder: AutoCommandBufferBuilder<PrimaryAutoCommandBuffer>,
+    pub swapchain_image_index: u32,
+    future: Box<dyn GpuFuture>,
+}
+
+#[derive(Debug)]
+pub enum FrameError {
+    SkipFrame,
+    Unrecoverable,
+    Vulkan(VulkanError),
+    Other(anyhow::Error),
 }
