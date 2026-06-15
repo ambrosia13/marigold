@@ -31,9 +31,8 @@ use winit::{event_loop::EventLoop, window::Window};
 
 use crate::util;
 
-#[expect(unused)]
-pub mod debug;
 pub mod ecs;
+pub mod resource;
 
 fn labels_to_string(iter: DebugUtilsMessengerCallbackLabelIter<'_>) -> String {
     iter.map(|l| format!("'{}'", l.label_name))

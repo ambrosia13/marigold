@@ -307,7 +307,6 @@ impl ApplicationHandler for App {
 
                 // initialize frame
                 let mut surface_state = world.non_send_resource_mut::<SurfaceState>();
-                let gpu = surface_state.gpu.clone();
 
                 let frame = match surface_state.begin_frame() {
                     Ok(r) => r,

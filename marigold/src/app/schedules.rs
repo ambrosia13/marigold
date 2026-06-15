@@ -211,17 +211,17 @@ impl Default for Schedules {
                 .chain(),
         );
 
-        schedules.on_redraw_menu_update.add_systems(
-            (
-                menu::diagnostics_menu,
-                menu::performance_metric_menu,
-                menu::controls_menu,
-                menu::camera_menu,
-                menu::atmosphere_menu,
-                menu::model_menu,
-            )
-                .chain(),
-        );
+        // schedules.on_redraw_menu_update.add_systems(
+        //     (
+        //         menu::diagnostics_menu,
+        //         menu::performance_metric_menu,
+        //         menu::controls_menu,
+        //         menu::camera_menu,
+        //         menu::atmosphere_menu,
+        //         menu::model_menu,
+        //     )
+        //         .chain(),
+        // );
 
         schedules.on_resize.add_systems(
             (

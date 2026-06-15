@@ -20,7 +20,7 @@ gltf = "1.4.1"
 
 # user interface
 egui = { git = "https://github.com/ambrosia13/egui" }
-egui-wgpu = { git = "https://github.com/ambrosia13/egui" }
+# egui-wgpu = { git = "https://github.com/ambrosia13/egui" }
 egui-winit = { git = "https://github.com/ambrosia13/egui" }
 egui_plot = { git = "https://github.com/ambrosia13/egui_plot" }
 
