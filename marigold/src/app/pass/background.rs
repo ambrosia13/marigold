@@ -1,14 +1,31 @@
 use bevy_ecs::{
     resource::Resource,
-    system::{Commands, Res, ResMut},
+    system::{Commands, NonSendMut, Res, ResMut},
 };
 use glam::UVec3;
+use vulkano::{
+    command_buffer::RenderingInfo,
+    descriptor_set::{
+        DescriptorSet,
+        layout::{
+            DescriptorSetLayout, DescriptorSetLayoutBinding, DescriptorSetLayoutCreateInfo,
+            DescriptorType,
+        },
+    },
+    image::{
+        Image,
+        sampler::{Filter, Sampler, SamplerAddressMode, SamplerCreateInfo, SamplerMipmapMode},
+        view::ImageView,
+    },
+    pipeline::ComputePipeline,
+    shader::ShaderStages,
+};
 
 use crate::{
     app::{
         data::{atmosphere::AtmosphereBinding, camera::ScreenBinding},
         pass::{BACKGROUND_TEXTURE_FORMAT, bake::AtmosphereBakePass},
-        render::{FrameRecord, SurfaceState},
+        render::{FrameRecord, GpuHandle, SurfaceState},
     },
     util,
 };
@@ -21,29 +38,48 @@ pub const SKY_VIEW_HEIGHT: u32 = 400;
 // holds binding to the active background pass output, ie. atmosphere cubemap
 #[derive(Resource)]
 pub struct BackgroundBinding {
-    pub bind_group: wgpu::BindGroup,
-    pub bind_group_layout: wgpu::BindGroupLayout,
+    pub descriptor_set: DescriptorSet,
+    pub descriptor_set_layout: DescriptorSetLayout,
 }
 
 impl BackgroundBinding {
     pub fn init(
         mut commands: Commands,
-        surface_state: Res<SurfaceState>,
+        gpu: Res<GpuHandle>,
         atmosphere_cubemap_pass: Res<AtmosphereCubemapPass>,
-    ) {
-        let sampler = surface_state
-            .gpu
-            .device
-            .create_sampler(&wgpu::SamplerDescriptor {
-                label: Some("background_cubemap_sampler"),
-                address_mode_u: wgpu::AddressMode::ClampToEdge,
-                address_mode_v: wgpu::AddressMode::ClampToEdge,
-                address_mode_w: wgpu::AddressMode::ClampToEdge,
-                mag_filter: wgpu::FilterMode::Linear,
-                min_filter: wgpu::FilterMode::Linear,
-                mipmap_filter: wgpu::MipmapFilterMode::Linear,
+    ) -> anyhow::Result<()> {
+        let sampler = Sampler::new(
+            gpu.device.clone(),
+            SamplerCreateInfo {
+                mag_filter: Filter::Linear,
+                min_filter: Filter::Linear,
+                mipmap_mode: SamplerMipmapMode::Linear,
                 ..Default::default()
-            });
+            },
+        )?;
+
+        let descriptor_set_layout = DescriptorSetLayout::new(
+            gpu.device.clone(),
+            DescriptorSetLayoutCreateInfo {
+                bindings: [
+                    (
+                        0,
+                        DescriptorSetLayoutBinding {
+                            stages: ShaderStages::COMPUTE,
+                            ..DescriptorSetLayoutBinding::descriptor_type(DescriptorType::Sampler)
+                        },
+                    ),
+                    (
+                        1,
+                        DescriptorSetLayoutBinding::descriptor_type(DescriptorType::SampledImage),
+                    ),
+                ]
+                .into_iter()
+                .collect(),
+
+                ..Default::default()
+            },
+        );
 
         let bind_group_layout =
             surface_state
@@ -96,26 +132,25 @@ impl BackgroundBinding {
             bind_group,
             bind_group_layout,
         });
+
+        Ok(())
     }
 }
 
 #[derive(Resource)]
 pub struct AtmosphereCubemapPass {
-    #[expect(unused)]
-    pub cubemap_texture: wgpu::Texture,
-    pub cubemap_texture_view: wgpu::TextureView,
-    pub cubemap_face_texture_views: [wgpu::TextureView; 6],
-    pub sky_view_day_texture: wgpu::Texture,
-    #[expect(unused)]
-    pub sky_view_day_texture_view: wgpu::TextureView,
-    #[expect(unused)]
-    pub sky_view_night_texture: wgpu::Texture,
-    #[expect(unused)]
-    pub sky_view_night_texture_view: wgpu::TextureView,
+    pub cubemap_image: Image,
+    pub cubemap_image_view: ImageView,
+    pub cubemap_face_image_views: [ImageView; 6],
 
-    sky_view_pass_bind_group: wgpu::BindGroup,
-    sky_view_pass_pipeline: wgpu::ComputePipeline,
-    cubemap_pass_bind_group: wgpu::BindGroup,
+    pub sky_view_day_image: Image,
+    pub sky_view_day_image_view: ImageView,
+    pub sky_view_night_image: Image,
+    pub sky_view_night_image_view: ImageView,
+
+    sky_view_pass_descriptor_set: DescriptorSet,
+    sky_view_pass_pipeline: ComputePipeline,
+    cubemap_pass_descriptor_set: DescriptorSet,
     cubemap_pass_pipeline: wgpu::RenderPipeline,
 }
 
@@ -405,7 +440,7 @@ impl AtmosphereCubemapPass {
     }
 
     pub fn update(
-        mut frame: ResMut<FrameRecord>,
+        mut frame: NonSendMut<FrameRecord>,
         screen_binding: Res<ScreenBinding>,
         atmosphere_binding: Res<AtmosphereBinding>,
         atmosphere_bake_pass: Res<AtmosphereBakePass>,
@@ -444,6 +479,11 @@ impl AtmosphereCubemapPass {
         sky_view_pass.dispatch_workgroups(workgroups.x, workgroups.y, workgroups.z);
 
         drop(sky_view_pass);
+
+        frame.cmd_builder.begin_rendering(RenderingInfo {
+            color_attachments: todo!(),
+            ..Default::default()
+        });
 
         let mut cubemap_pass = frame
             .encoder

@@ -1,3 +1,5 @@
+TARGET_NAME = marigold_vk
+
 TARGET_DIR = debug
 
 # empty by default to represent debug mode
@@ -24,10 +26,10 @@ nsight: SHADER_DEBUG_INFO = 1
 debug release nsight: build
 
 build:
-	SHADER_DEBUG_INFO=$(SHADER_DEBUG_INFO) cargo build $(CARGO_FLAGS) -p marigold
+	SHADER_DEBUG_INFO=$(SHADER_DEBUG_INFO) cargo build $(CARGO_FLAGS) -p $(TARGET_NAME)
 
 	mkdir -p out/marigold
-	cp target/$(TARGET_DIR)/marigold out/marigold/marigold
+	cp target/$(TARGET_DIR)/$(TARGET_NAME) out/marigold/marigold
 
 	mkdir -p out/marigold/assets
 	mkdir -p out/marigold/assets/shaders
