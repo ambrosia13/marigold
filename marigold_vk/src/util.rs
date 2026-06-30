@@ -1,0 +1,123 @@
+use std::{
+    path::{Path, PathBuf},
+    str::FromStr,
+};
+
+use glam::UVec3;
+
+pub fn get_env_flag(name: &str) -> bool {
+    match std::env::var(name) {
+        Ok(flag) => match flag.parse::<u32>() {
+            Ok(flag) => flag != 0,
+            Err(_) => {
+                log::warn!(
+                    "Environment variable {}={} was a non-integral value, assuming false",
+                    name,
+                    flag
+                );
+                false
+            }
+        },
+        _ => false,
+    }
+}
+
+pub fn get_env_val<T: FromStr>(name: &str) -> Option<T> {
+    match std::env::var(name) {
+        Ok(val) => match val.parse::<T>() {
+            Ok(val) => Some(val),
+            Err(_) => {
+                log::warn!(
+                    "Environment variable {}={} could not be parsed, assuming unset",
+                    name,
+                    val
+                );
+                None
+            }
+        },
+        _ => None,
+    }
+}
+
+pub fn get_profiling_level() -> u32 {
+    match get_env_val::<u32>("PROFILING_INFO") {
+        Some(v) if (0..=2).contains(&v) => v,
+        Some(v) => {
+            log::warn!(
+                "Environment variable PROFILING_INFO={} must be 0, 1, or 2; assuming 0",
+                v
+            );
+            0
+        }
+        _ => 0,
+    }
+}
+
+pub fn get_asset_root() -> PathBuf {
+    if let Ok(manifest_dir) = std::env::var("CARGO_MANIFEST_DIR") {
+        // running via cargo, binary is in manifest_dir/target/debug or manifest_dir/target/release, but assets is in manifest_dir/assets
+        PathBuf::from(manifest_dir)
+    } else {
+        // running the binary directly, assets is expected to be in the same directory
+        let mut path = std::env::current_exe().unwrap();
+        assert!(path.pop());
+
+        path
+    }
+}
+
+pub fn get_asset_path<P: AsRef<Path>>(asset_location: P) -> PathBuf {
+    get_asset_root().join("assets").join(&asset_location)
+}
+
+pub fn get_shader_path<P: AsRef<Path>>(shader_location: P) -> PathBuf {
+    // remove the extension
+    let shader_location = shader_location.as_ref().with_extension("");
+
+    let mut path = get_asset_path("shaders/target");
+    path.push(&shader_location);
+
+    log::info!(
+        "Shader path '{}' resolves to '{}'",
+        shader_location.to_string_lossy(),
+        path.to_string_lossy()
+    );
+
+    path
+}
+
+fn bytes_to_spirv(bytes: &[u8]) -> &[u32] {
+    todo!("wgpu::util::make_spirv_raw")
+}
+
+pub fn get_spirv_source<P: AsRef<Path>>(shader_location: P) -> Vec<u32> {
+    std::fs::read(get_shader_path(&shader_location))
+        .map(|source| bytes_to_spirv(&source).to_vec())
+        .unwrap_or_else(|err| {
+            panic!(
+                "unable to read spir-v source for {}; error: {}",
+                shader_location.as_ref().to_string_lossy(),
+                err
+            )
+        })
+}
+
+pub fn get_workgroup_count_from_size(workgroup_size: UVec3, dimensions: UVec3) -> UVec3 {
+    (dimensions + workgroup_size - UVec3::ONE) / workgroup_size
+}
+
+// returns new number + unit
+pub fn display_byte_size(bytes: usize) -> (f64, &'static str) {
+    let base: usize = 1024;
+    let units = ["B", "KiB", "MiB"];
+
+    for (power, unit) in units.into_iter().enumerate() {
+        let max_of_unit = base.pow(1 + power as u32);
+        if bytes < max_of_unit {
+            return (bytes as f64 / base.pow(power as u32) as f64, unit);
+        }
+    }
+
+    // if none of the other units work, format as GiB
+    (bytes as f64 / base.pow(3) as f64, "GiB")
+}
