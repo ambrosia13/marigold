@@ -30,7 +30,6 @@ use vulkano::{
 use winit::{event_loop::EventLoop, window::Window};
 
 pub mod buffervec;
-mod util;
 
 #[derive(Clone)]
 pub struct GpuHandlePreInit {
@@ -40,6 +39,7 @@ pub struct GpuHandlePreInit {
 
 #[derive(Resource, Clone)]
 pub struct GpuHandle {
+    pub library: Arc<VulkanLibrary>,
     pub instance: Arc<Instance>,
     pub physical_device: Arc<PhysicalDevice>,
     pub device: Arc<Device>,
@@ -53,65 +53,37 @@ impl GpuHandle {
     pub fn pre_init(event_loop: &EventLoop<()>) -> anyhow::Result<GpuHandlePreInit> {
         let library = unsafe { VulkanLibrary::new() }?;
 
-        let validation_enabled = !crate::util::get_env_flag("DISABLE_VALIDATION_LAYERS")
-            && library
-                .layer_properties()
-                .unwrap()
-                .any(|l| l.name() == "VK_LAYER_KHRONOS_validation");
+        let validation_layer_available = library
+            .layer_properties()
+            .unwrap()
+            .any(|l| l.name() == "VK_LAYER_KHRONOS_validation");
 
-        if cfg!(debug_assertions) && !validation_enabled {
-            log::warn!(
-                "Running a debug build, but no vulkan validation layer installed, so important gpu validation may be missing"
-            );
+        if validation_layer_available {
+            log::info!("Validation layers are present; enable them through vkconfig gui");
+        } else {
+            log::info!("Validation layers are not present");
         }
 
         let surface_extensions = Surface::required_extensions(event_loop);
-
-        let user_callback = unsafe { DebugUtilsMessengerCallback::new(util::debug_messenger) };
-
-        // this will only be used in debug builds
-        let debug_messenger_create_info = DebugUtilsMessengerCreateInfo {
-            message_type: DebugUtilsMessageType::GENERAL
-                | DebugUtilsMessageType::PERFORMANCE
-                | DebugUtilsMessageType::VALIDATION,
-            ..DebugUtilsMessengerCreateInfo::new(&user_callback)
-        };
-
-        let debug_utils_messengers = &[debug_messenger_create_info];
 
         let instance = Instance::new(
             &library,
             &InstanceCreateInfo {
                 // allow running on metal devices
                 flags: InstanceCreateFlags::ENUMERATE_PORTABILITY,
-                enabled_layers: if validation_enabled {
-                    &["VK_LAYER_KHRONOS_validation"]
-                } else {
-                    &[]
-                },
                 enabled_extensions: &InstanceExtensions {
                     khr_surface: true,
-                    ext_debug_utils: cfg!(debug_assertions),
-                    ext_validation_features: validation_enabled, // enable the required validation extension if validation layer is installed
+                    ext_debug_utils: true, // allows labeling
                     ..surface_extensions
                 },
-                debug_utils_messengers: if cfg!(debug_assertions) {
-                    debug_utils_messengers
-                } else {
-                    &[]
-                },
-                enabled_validation_features: if validation_enabled {
-                    &[
-                        ValidationFeatureEnable::BestPractices,
-                        ValidationFeatureEnable::SynchronizationValidation,
-                    ]
-                } else {
-                    &[]
-                },
-                disabled_validation_features: &[],
                 ..InstanceCreateInfo::application_from_cargo_toml()
             },
         )?;
+
+        log::info!(
+            "Created instance, max api version is {}",
+            instance.api_version()
+        );
 
         Ok(GpuHandlePreInit { library, instance })
     }
@@ -120,30 +92,34 @@ impl GpuHandle {
         pre_init: GpuHandlePreInit,
         window: Arc<Window>,
     ) -> anyhow::Result<(Self, Arc<Surface>)> {
-        let GpuHandlePreInit { instance, .. } = pre_init;
+        let GpuHandlePreInit { library, instance } = pre_init;
 
         let surface = Surface::from_window(&instance, &window)?;
 
+        log::info!("Created surface");
+
         let device_extensions = DeviceExtensions {
+            // ext_descriptor_indexing: true,
             khr_swapchain: true,
-            ext_descriptor_buffer: true,
-            ext_descriptor_indexing: true,
+            // ext_descriptor_buffer: true,
             ..DeviceExtensions::empty()
         };
 
         let device_features = DeviceFeatures {
-            dynamic_rendering: true,
-            synchronization2: true,
+            descriptor_indexing: true,
+            shader_sampled_image_array_non_uniform_indexing: true,
+
+            descriptor_binding_variable_descriptor_count: true,
+            runtime_descriptor_array: true,
             buffer_device_address: true,
 
-            descriptor_indexing: true,
-            runtime_descriptor_array: true,
+            dynamic_rendering: true,
+            synchronization2: true,
+
             descriptor_binding_partially_bound: true,
-            descriptor_binding_variable_descriptor_count: true,
 
             shader_storage_image_read_without_format: true,
             shader_storage_image_write_without_format: true,
-
             ..Default::default()
         };
 
@@ -171,6 +147,8 @@ impl GpuHandle {
             })
             .ok_or(anyhow!("no suitable physical devices found"))?;
 
+        log::info!("Created physical device and selected the queue family index");
+
         let (device, mut queues) = Device::new(
             &physical_device,
             &DeviceCreateInfo {
@@ -186,6 +164,8 @@ impl GpuHandle {
 
         let queue = queues.next().ok_or(anyhow!("no suitable queues found"))?;
 
+        log::info!("Created device and queues");
+
         let memory_allocator = Arc::new(StandardMemoryAllocator::new(&device, &Default::default()));
 
         let cmd_buffer_allocator = Arc::new(StandardCommandBufferAllocator::new(
@@ -193,8 +173,11 @@ impl GpuHandle {
             &Default::default(),
         ));
 
+        log::info!("Created memory allocator and command buffer allocator");
+
         Ok((
             Self {
+                library,
                 instance,
                 physical_device,
                 device,
@@ -258,13 +241,19 @@ impl SwapchainState {
             .unwrap_or(&formats[0])
             .0;
 
+        log::info!(
+            "Selected surface format is {:?}, selected present mode is {:?}",
+            surface_format,
+            present_mode
+        );
+
         Ok((
             SwapchainCreateInfo {
                 min_image_count: (caps.min_image_count + 1)
                     .min(caps.max_image_count.unwrap_or(u32::MAX)),
                 image_format: surface_format,
                 image_extent: window.inner_size().into(),
-                image_usage: ImageUsage::COLOR_ATTACHMENT | ImageUsage::TRANSFER_DST,
+                image_usage: ImageUsage::COLOR_ATTACHMENT,
                 present_mode,
                 composite_alpha,
                 ..Default::default()
@@ -300,6 +289,8 @@ impl SwapchainState {
     }
 
     pub fn recreate(&mut self) -> anyhow::Result<()> {
+        log::info!("Recreating swapcahin");
+
         let (create_info, format) =
             Self::get_swapchain_create_info(&self.gpu, self.surface.clone(), self.window.clone())?;
 
@@ -311,7 +302,7 @@ impl SwapchainState {
         self.views = self
             .images
             .iter()
-            .map(|img| ImageView::new_default(&img))
+            .map(|img| ImageView::new_default(img))
             .collect::<Result<Vec<_>, _>>()?;
 
         self.format = format;

@@ -1,3 +1,11 @@
+# vulkan in marigold
+
+marigold uses the Vulkan graphics API to render with utmost flexibility. Previously, a WebGPU-like API was used via `wgpu`, but since marigold uses some Vulkan-centric features that haven't yet made their way into `wgpu`, I attempted to switch to a native Vulkan library via `vulkano`. However, because there are few learning resources for this specific Vulkan abstraction, I settled on raw Vulkan bindings via `ash`. 
+
+This additionally made it easier to support my learning of Vulkan, which I've been meaning to do for a while. I'm not interested in writing raw, unsafe graphics code that supports decade-old devices. In my view, the entire point of foregoing abstractions is to gain access to cutting-edge features that haven't yet been abstracted away. To this end, I chose not to use the classic 2016-era Vulkan tutorials, and instead used this 2026 tutorial that focuses on using modern extensions that make the experience of writing raw Vulkan much more pleasant: [howtovulkan.com](https://howtovulkan.com/).
+
+Following the tutorial's recommendation, I also use the Vulkan Memory Allocator (VMA) and don't handle validation layers in-app and instead manage them through an external debug app (`vkconfig`'s GUI).
+
 # Bounding volume hierarchies in marigold
 
 marigold uses a two-level acceleration structure to represent the scene on the gpu. The acceleration structure used is a form of bounding volume hierarchy (BVH).

@@ -238,17 +238,17 @@ impl ApplicationHandler for App {
                     }
                 };
 
-                frame
-                    .cmd_builder
-                    .clear_color_image(vulkano::command_buffer::ClearColorImageInfo {
-                        image_layout: vulkano::image::ImageLayout::General,
-                        clear_value: vulkano::format::ClearColorValue::Float([1.0, 0.5, 0.25, 1.0]),
-                        ..vulkano::command_buffer::ClearColorImageInfo::new(
-                            surface_state.swapchain.images[frame.swapchain_image_index as usize]
-                                .clone(),
-                        )
-                    })
-                    .unwrap();
+                // frame
+                //     .cmd_builder
+                //     .clear_color_image(vulkano::command_buffer::ClearColorImageInfo {
+                //         image_layout: vulkano::image::ImageLayout::General,
+                //         clear_value: vulkano::format::ClearColorValue::Float([1.0, 0.5, 0.25, 1.0]),
+                //         ..vulkano::command_buffer::ClearColorImageInfo::new(
+                //             surface_state.swapchain.images[frame.swapchain_image_index as usize]
+                //                 .clone(),
+                //         )
+                //     })
+                //     .unwrap();
 
                 // frame
                 //     .cmd_builder
