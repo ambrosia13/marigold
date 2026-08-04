@@ -1,32 +1,8 @@
-use std::sync::Arc;
+use std::{ffi::c_void, sync::Arc};
 
 use anyhow::anyhow;
+use ash::vk;
 use bevy_ecs::resource::Resource;
-use itertools::Itertools;
-use vulkano::{
-    Validated, VulkanError, VulkanLibrary,
-    command_buffer::{
-        AutoCommandBufferBuilder, PrimaryAutoCommandBuffer,
-        allocator::StandardCommandBufferAllocator,
-    },
-    device::{
-        Device, DeviceCreateInfo, DeviceExtensions, DeviceFeatures, Queue, QueueCreateInfo,
-        QueueFlags,
-        physical::{PhysicalDevice, PhysicalDeviceType},
-    },
-    format::Format,
-    image::{Image, ImageUsage, view::ImageView},
-    instance::{
-        Instance, InstanceCreateFlags, InstanceCreateInfo, InstanceExtensions,
-        debug::{
-            DebugUtilsMessageType, DebugUtilsMessengerCallback, DebugUtilsMessengerCreateInfo,
-            ValidationFeatureEnable,
-        },
-    },
-    memory::allocator::StandardMemoryAllocator,
-    swapchain::{PresentMode, Surface, Swapchain, SwapchainCreateInfo, SwapchainPresentInfo},
-    sync::{self, GpuFuture},
-};
 use winit::{event_loop::EventLoop, window::Window};
 
 pub mod buffervec;
@@ -34,93 +10,102 @@ mod util;
 
 #[derive(Clone)]
 pub struct GpuHandlePreInit {
-    library: Arc<VulkanLibrary>,
-    instance: Arc<Instance>,
+    instance: ash::Instance,
 }
 
 #[derive(Resource, Clone)]
-pub struct GpuHandle {
-    pub instance: Arc<Instance>,
-    pub physical_device: Arc<PhysicalDevice>,
-    pub device: Arc<Device>,
-    pub queue: Arc<Queue>,
-
-    pub memory_allocator: Arc<StandardMemoryAllocator>,
-    pub cmd_buffer_allocator: Arc<StandardCommandBufferAllocator>,
-}
+pub struct GpuHandle {}
 
 impl GpuHandle {
     pub fn pre_init(event_loop: &EventLoop<()>) -> anyhow::Result<GpuHandlePreInit> {
-        let library = unsafe { VulkanLibrary::new() }?;
+        let entry = unsafe { ash::Entry::load() }?;
 
-        let validation_enabled = !crate::util::get_env_flag("DISABLE_VALIDATION_LAYERS")
-            && library
-                .layer_properties()
-                .unwrap()
-                .any(|l| l.name() == "VK_LAYER_KHRONOS_validation");
+        let app_info = vk::ApplicationInfo::default()
+            .application_name(c"marigold")
+            .api_version(vk::API_VERSION_1_3);
 
-        if cfg!(debug_assertions) && !validation_enabled {
-            log::warn!(
-                "Running a debug build, but no vulkan validation layer installed, so important gpu validation may be missing"
-            );
-        }
+        let instance_extensions =
+            ash_window::enumerate_required_extensions(event_loop.display_handle()?.as_raw())?;
 
-        let surface_extensions = Surface::required_extensions(event_loop);
+        let instance_ci = vk::InstanceCreateInfo::default()
+            .application_info(&app_info)
+            .enabled_extension_names(instance_extensions);
 
-        let user_callback = unsafe { DebugUtilsMessengerCallback::new(util::debug_messenger) };
+        let instance = unsafe { entry.create_instance(&instance_ci, None) }?;
 
-        // this will only be used in debug builds
-        let debug_messenger_create_info = DebugUtilsMessengerCreateInfo {
-            message_type: DebugUtilsMessageType::GENERAL
-                | DebugUtilsMessageType::PERFORMANCE
-                | DebugUtilsMessageType::VALIDATION,
-            ..DebugUtilsMessengerCreateInfo::new(&user_callback)
-        };
-
-        let debug_utils_messengers = &[debug_messenger_create_info];
-
-        let instance = Instance::new(
-            &library,
-            &InstanceCreateInfo {
-                // allow running on metal devices
-                flags: InstanceCreateFlags::ENUMERATE_PORTABILITY,
-                enabled_layers: if validation_enabled {
-                    &["VK_LAYER_KHRONOS_validation"]
-                } else {
-                    &[]
-                },
-                enabled_extensions: &InstanceExtensions {
-                    khr_surface: true,
-                    ext_debug_utils: cfg!(debug_assertions),
-                    ext_validation_features: validation_enabled, // enable the required validation extension if validation layer is installed
-                    ..surface_extensions
-                },
-                debug_utils_messengers: if cfg!(debug_assertions) {
-                    debug_utils_messengers
-                } else {
-                    &[]
-                },
-                enabled_validation_features: if validation_enabled {
-                    &[
-                        ValidationFeatureEnable::BestPractices,
-                        ValidationFeatureEnable::SynchronizationValidation,
-                    ]
-                } else {
-                    &[]
-                },
-                disabled_validation_features: &[],
-                ..InstanceCreateInfo::application_from_cargo_toml()
-            },
-        )?;
-
-        Ok(GpuHandlePreInit { library, instance })
+        Ok(GpuHandlePreInit { instance })
     }
 
     pub fn new(
         pre_init: GpuHandlePreInit,
         window: Arc<Window>,
-    ) -> anyhow::Result<(Self, Arc<Surface>)> {
+    ) -> anyhow::Result<(Self, Arc<vk::Surface>)> {
         let GpuHandlePreInit { instance, .. } = pre_init;
+
+        let physical_devices = unsafe { instance.enumerate_physical_devices() }?;
+        let (physical_device, physical_device_properties) = physical_devices
+            .into_iter()
+            .map(|pd| {
+                let mut props = vk::PhysicalDeviceProperties2::default();
+                unsafe { instance.get_physical_device_properties2(pd, &mut props) };
+
+                (pd, props)
+            })
+            .min_by_key(|(pd, props)| match props.properties.device_type {
+                vk::PhysicalDeviceType::DISCRETE_GPU => 0,
+                vk::PhysicalDeviceType::INTEGRATED_GPU => 1,
+                vk::PhysicalDeviceType::VIRTUAL_GPU => 2,
+                vk::PhysicalDeviceType::OTHER => 3,
+                vk::PhysicalDeviceType::CPU => 4,
+            })
+            .ok_or(anyhow!("The instance did provide any physical devices"))?;
+
+        let queue_family_properties =
+            unsafe { instance.get_physical_device_queue_family_properties(physical_device) };
+
+        let (queue_family_index, queue_family_properties) = queue_family_properties
+            .iter()
+            .enumerate()
+            .find(|(i, qfp)| {
+                qfp.queue_flags
+                    .contains(vk::QueueFlags::GRAPHICS | vk::QueueFlags::COMPUTE)
+            })
+            .ok_or(anyhow!(
+                "no suitable queue family on selected physical device"
+            ))?;
+
+        let queue_ci = vk::DeviceQueueCreateInfo::default()
+            .queue_family_index(queue_family_index as u32)
+            .queue_priorities(&[1.0]);
+
+        let device_extensions = [vk::KHR_SWAPCHAIN_NAME.as_ptr()];
+        let vk10_features = vk::PhysicalDeviceFeatures::default().sampler_anisotropy(true);
+        let mut vk12_features = vk::PhysicalDeviceVulkan12Features::default()
+            .descriptor_indexing(true)
+            .shader_sampled_image_array_non_uniform_indexing(true)
+            .descriptor_binding_variable_descriptor_count(true)
+            .runtime_descriptor_array(true)
+            .buffer_device_address(true);
+        let mut vk13_features = vk::PhysicalDeviceVulkan13Features::default()
+            .synchronization2(true)
+            .dynamic_rendering(true);
+
+        vk13_features.p_next = &mut vk12_features as *mut _ as *mut c_void;
+
+        let device_ci = vk::DeviceCreateInfo::default()
+            .queue_create_infos(&[queue_ci])
+            .enabled_extension_names(&device_extensions)
+            .enabled_features(&vk10_features)
+            .push_next(&mut vk13_features);
+
+        let device = unsafe { instance.create_device(physical_device, &device_ci, None) }?;
+        let queue = unsafe { device.get_device_queue(queue_family_index as u32, 0) };
+
+        let mut allocator_ci =
+            vk_mem::AllocatorCreateInfo::new(&instance, &device, physical_device);
+        allocator_ci.flags |= vk_mem::AllocatorCreateFlags::BUFFER_DEVICE_ADDRESS;
+
+        let allocator = unsafe { vk_mem::Allocator::new(allocator_ci) }?;
 
         let surface = Surface::from_window(&instance, &window)?;
 

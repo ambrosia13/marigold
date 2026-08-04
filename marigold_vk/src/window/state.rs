@@ -8,7 +8,7 @@ use winit::{
 };
 
 use crate::{
-    vk::{GpuHandle, GpuHandlePreInit, SurfaceState},
+    vulkan::{GpuHandle, GpuHandlePreInit, SurfaceState},
     window::schedules::Schedules,
 };
 

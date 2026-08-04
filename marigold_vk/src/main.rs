@@ -1,6 +1,6 @@
 mod app;
 mod util;
-mod vk;
+mod vulkan;
 mod window;
 
 use env_logger::Env;

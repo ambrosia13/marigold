@@ -10,7 +10,7 @@ use winit::{
 
 use crate::{
     app::time::{FpsCounter, Time},
-    vk::{FrameError, FrameRecord, GpuHandle, SurfaceState},
+    vulkan::{FrameError, FrameRecord, GpuHandle, SurfaceState},
     window::{
         messages::{ExitMessage, KeyInputMessage, MouseInputMessage, MouseMotionMessage},
         state::{AppState, FocusState, MenuState},

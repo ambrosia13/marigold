@@ -1,8 +1,4 @@
 use itertools::Itertools;
-use vulkano::instance::debug::{
-    DebugUtilsMessageSeverity, DebugUtilsMessageType, DebugUtilsMessengerCallbackData,
-    DebugUtilsMessengerCallbackLabelIter,
-};
 
 fn labels_to_string(iter: DebugUtilsMessengerCallbackLabelIter<'_>) -> String {
     Itertools::intersperse(iter.map(|l| format!("'{}'", l.label_name)), ", ".into()).collect()
