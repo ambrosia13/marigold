@@ -2,34 +2,41 @@ use std::sync::Arc;
 
 use anyhow::anyhow;
 use bevy_ecs::resource::Resource;
-use itertools::Itertools;
 use vulkano::{
     Validated, VulkanError, VulkanLibrary,
     command_buffer::{
-        AutoCommandBufferBuilder, PrimaryAutoCommandBuffer,
-        allocator::StandardCommandBufferAllocator,
+        AutoCommandBufferBuilder, CommandBufferBeginInfo, CommandBufferLevel,
+        CommandBufferSubmitInfo, CommandBufferUsage, PrimaryAutoCommandBuffer,
+        RecordingCommandBuffer, SemaphoreSubmitInfo, SubmitInfo,
+        allocator::{CommandBufferAllocator, StandardCommandBufferAllocator},
+        raw::{DependencyInfo, ImageMemoryBarrier, RenderingAttachmentInfo, RenderingInfo},
     },
     device::{
         Device, DeviceCreateInfo, DeviceExtensions, DeviceFeatures, Queue, QueueCreateInfo,
         QueueFlags,
         physical::{PhysicalDevice, PhysicalDeviceType},
     },
-    format::Format,
-    image::{Image, ImageUsage, view::ImageView},
-    instance::{
-        Instance, InstanceCreateFlags, InstanceCreateInfo, InstanceExtensions,
-        debug::{
-            DebugUtilsMessageType, DebugUtilsMessengerCallback, DebugUtilsMessengerCreateInfo,
-            ValidationFeatureEnable,
-        },
-    },
+    format::{ClearValue, Format},
+    image::{Image, ImageAspects, ImageLayout, ImageSubresourceRange, ImageUsage, view::ImageView},
+    instance::{Instance, InstanceCreateFlags, InstanceCreateInfo, InstanceExtensions},
     memory::allocator::StandardMemoryAllocator,
-    swapchain::{PresentMode, Surface, Swapchain, SwapchainCreateInfo, SwapchainPresentInfo},
-    sync::{self, GpuFuture},
+    render_pass::{AttachmentLoadOp, AttachmentStoreOp},
+    swapchain::{
+        AcquireNextImageInfo, PresentInfo, PresentMode, SemaphorePresentInfo, Surface, Swapchain,
+        SwapchainAcquireFuture, SwapchainCreateInfo, SwapchainPresentInfo,
+    },
+    sync::{
+        self, AccessFlags, GpuFuture, MemoryBarrier, PipelineStages,
+        fence::{Fence, FenceCreateFlags, FenceCreateInfo},
+        future::FenceSignalFuture,
+        semaphore::{Semaphore, SemaphoreCreateInfo},
+    },
 };
 use winit::{event_loop::EventLoop, window::Window};
 
 pub mod buffervec;
+
+pub const FRAMES_IN_FLIGHT: usize = 3;
 
 #[derive(Clone)]
 pub struct GpuHandlePreInit {
@@ -196,6 +203,9 @@ pub struct SwapchainState {
     pub views: Vec<Arc<ImageView>>,
     pub format: Format,
 
+    // one for each swapchain image
+    pub render_semaphores: Vec<Arc<Semaphore>>, // used so the gpu doesn't present the swapchain image until the cmd execution is done
+
     surface: Arc<Surface>,
     window: Arc<Window>,
 
@@ -277,6 +287,13 @@ impl SwapchainState {
             .map(|img| ImageView::new_default(img))
             .collect::<Result<Vec<_>, _>>()?;
 
+        let render_semaphores = images
+            .iter()
+            .map(|_| {
+                Arc::new(Semaphore::new(&gpu.device, &SemaphoreCreateInfo::default()).unwrap())
+            })
+            .collect();
+
         Ok(Self {
             inner: swapchain,
             images,
@@ -284,15 +301,20 @@ impl SwapchainState {
             format,
             surface,
             window,
+            render_semaphores,
             gpu: gpu.clone(),
         })
     }
 
     pub fn recreate(&mut self) -> anyhow::Result<()> {
-        log::info!("Recreating swapcahin");
-
         let (create_info, format) =
             Self::get_swapchain_create_info(&self.gpu, self.surface.clone(), self.window.clone())?;
+
+        log::info!(
+            "Recreating swapcahin; new size is {}x{}",
+            create_info.image_extent[0],
+            create_info.image_extent[1]
+        );
 
         let (new_swapchain, new_images) = self.inner.recreate(&create_info)?;
 
@@ -319,8 +341,13 @@ pub struct SurfaceState {
 
     pub gpu: GpuHandle,
 
+    pub frame_in_flight_index: usize,
+
+    // one for each frame in flight
+    pub acquire_semaphores: [Arc<Semaphore>; FRAMES_IN_FLIGHT], // used so the gpu doesn't begin executing cmds until the swapchain image is available
+    pub submit_fences: [Arc<Fence>; FRAMES_IN_FLIGHT], // used so the cpu does not render more than FRAMES_IN_FLIGHT frames ahead of the gpu
+
     swapchain_needs_recreate: bool,
-    previous_frame_end: Option<Box<dyn GpuFuture>>,
 }
 
 impl SurfaceState {
@@ -331,41 +358,67 @@ impl SurfaceState {
     ) -> anyhow::Result<Self> {
         let swapchain = SwapchainState::new(gpu, surface.clone(), window.clone())?;
 
+        let acquire_semaphores = std::array::from_fn(|_| {
+            Arc::new(Semaphore::new(&gpu.device, &SemaphoreCreateInfo::default()).unwrap())
+        });
+
+        let submit_fences = std::array::from_fn(|_| {
+            Arc::new(
+                Fence::new(
+                    &gpu.device,
+                    &FenceCreateInfo {
+                        // create in the signaled state so the first frame knows not to wait on anything
+                        flags: FenceCreateFlags::SIGNALED,
+                        ..Default::default()
+                    },
+                )
+                .unwrap(),
+            )
+        });
+
         Ok(Self {
             surface,
             swapchain,
             window,
             gpu: gpu.clone(),
+            frame_in_flight_index: 0,
+            acquire_semaphores,
+            submit_fences,
             swapchain_needs_recreate: false,
-            previous_frame_end: Some(sync::now(gpu.device.clone()).boxed()),
         })
     }
 
     pub fn resize(&mut self, new_size: winit::dpi::PhysicalSize<u32>) {
         if new_size.width > 0 && new_size.height > 0 {
             self.swapchain_needs_recreate = true; // enqueue it rather than do it immediately
-        // self.swapchain.recreate()?;
-        // self.swapchain_needs_recreate = false; // clear this flag if it was already set
         } else {
             log::error!("invalid window resize: {:?}, skipping", new_size);
         }
     }
 
     pub fn begin_frame(&mut self) -> Result<FrameRecord, FrameError> {
-        self.previous_frame_end
-            .iter_mut()
-            .for_each(|f| f.cleanup_finished());
+        log::info!("beginning frame {}", self.frame_in_flight_index);
+
+        // wait until the previous cycle's fence is signaled, so we don't render too far ahead
+        self.submit_fences[self.frame_in_flight_index]
+            .wait(None)
+            .unwrap();
 
         if self.swapchain_needs_recreate {
             self.swapchain.recreate().map_err(FrameError::Other)?;
             self.swapchain_needs_recreate = false;
         }
 
-        let (swapchain_image_index, suboptimal, acquire_future) =
-            match vulkano::swapchain::acquire_next_image(self.swapchain.inner.clone(), None)
-                .map_err(Validated::unwrap)
-            {
-                Ok(r) => r,
+        let acquire_info = AcquireNextImageInfo {
+            timeout: None,
+            semaphore: Some(&self.acquire_semaphores[self.frame_in_flight_index]),
+            fence: None,
+            ..Default::default()
+        };
+
+        let (swapchain_image_index, suboptimal) =
+            match unsafe { self.swapchain.inner.acquire_next_image(&acquire_info) } {
+                Ok(aq_img) => (aq_img.image_index, aq_img.is_suboptimal),
                 Err(VulkanError::OutOfDate) => {
                     log::warn!("swapchain is out of date, skipping this frame");
                     self.swapchain_needs_recreate = true;
@@ -381,58 +434,148 @@ impl SurfaceState {
             );
         }
 
-        // basically the vulkano equivalent of wgpu's CommandEncoder
-        let cmd_builder = AutoCommandBufferBuilder::primary(
-            self.gpu.cmd_buffer_allocator.clone(),
+        // initialize the command buffer with a clear command
+        let mut cmd_buffer = RecordingCommandBuffer::new(
+            &self.gpu.cmd_buffer_allocator,
             self.gpu.queue.queue_family_index(),
-            vulkano::command_buffer::CommandBufferUsage::OneTimeSubmit,
+            CommandBufferLevel::Primary,
+            &CommandBufferBeginInfo {
+                usage: CommandBufferUsage::OneTimeSubmit,
+                ..Default::default()
+            },
         )
-        .map_err(Validated::unwrap)
         .map_err(FrameError::Vulkan)?;
 
+        unsafe {
+            cmd_buffer.pipeline_barrier(&DependencyInfo {
+                image_memory_barriers: &[ImageMemoryBarrier {
+                    src_stages: PipelineStages::TOP_OF_PIPE,
+                    src_access: AccessFlags::empty(),
+
+                    dst_stages: PipelineStages::COLOR_ATTACHMENT_OUTPUT,
+                    dst_access: AccessFlags::COLOR_ATTACHMENT_WRITE,
+
+                    old_layout: ImageLayout::Undefined,
+                    new_layout: ImageLayout::General,
+
+                    subresource_range: ImageSubresourceRange {
+                        aspects: ImageAspects::COLOR,
+                        ..Default::default()
+                    },
+                    ..ImageMemoryBarrier::new(
+                        &self.swapchain.images[swapchain_image_index as usize],
+                    )
+                }],
+                ..Default::default()
+            });
+
+            cmd_buffer.begin_rendering(&RenderingInfo {
+                color_attachments: &[Some(RenderingAttachmentInfo {
+                    load_op: AttachmentLoadOp::Clear,
+                    store_op: AttachmentStoreOp::Store,
+                    clear_value: Some(ClearValue::Float([1.0, 0.5, 0.2, 1.0])),
+                    ..RenderingAttachmentInfo::new(
+                        &self.swapchain.views[swapchain_image_index as usize],
+                    )
+                })],
+                depth_attachment: None,
+                stencil_attachment: None,
+                ..Default::default()
+            });
+
+            cmd_buffer.end_rendering();
+        }
+
         Ok(FrameRecord {
-            cmd_builder,
+            cmd_buffer,
+            flight_index: self.frame_in_flight_index,
             swapchain_image_index,
-            future: acquire_future.boxed(),
         })
     }
 
-    pub fn finish_frame(&mut self, frame: FrameRecord) -> anyhow::Result<()> {
+    pub fn finish_frame(&mut self, mut frame: FrameRecord) -> anyhow::Result<()> {
+        // transition back into the present optimal layout
+        unsafe {
+            frame.cmd_buffer.pipeline_barrier(&DependencyInfo {
+                image_memory_barriers: &[ImageMemoryBarrier {
+                    src_stages: PipelineStages::COLOR_ATTACHMENT_OUTPUT,
+                    src_access: AccessFlags::COLOR_ATTACHMENT_WRITE,
+
+                    dst_stages: PipelineStages::BOTTOM_OF_PIPE,
+                    dst_access: AccessFlags::empty(),
+
+                    old_layout: ImageLayout::General,
+                    new_layout: ImageLayout::PresentSrc,
+
+                    subresource_range: ImageSubresourceRange {
+                        aspects: ImageAspects::COLOR,
+                        ..Default::default()
+                    },
+                    ..ImageMemoryBarrier::new(
+                        &self.swapchain.images[frame.swapchain_image_index as usize],
+                    )
+                }],
+                ..Default::default()
+            })
+        };
+
         // we propagate this error because I think this function shouldn't have to worry about general
         // command submission failing, just surface presentation failing?
-        let cmd_buffer = frame.cmd_builder.build()?;
+        let cmd_buffer = unsafe { frame.cmd_buffer.end() }?;
 
-        let future = frame
-            .future
-            // make sure that this runs after the previous frame's commands as well as after the swapchain image is ready
-            .join(self.previous_frame_end.take().unwrap())
-            // execute the commands recorded over the frame lifetime
-            .then_execute(self.gpu.queue.clone(), cmd_buffer)?
-            .then_signal_fence()
-            .then_swapchain_present(
-                self.gpu.queue.clone(),
-                SwapchainPresentInfo::new(
+        // reset the fence now that we know the frame work is complete
+        unsafe {
+            self.submit_fences[self.frame_in_flight_index]
+                .reset()
+                .unwrap()
+        };
+
+        match self.gpu.queue.with(|mut q| {
+            let submit_info = SubmitInfo {
+                wait_semaphores: &[SemaphoreSubmitInfo::new(
+                    &self.acquire_semaphores[frame.flight_index],
+                )],
+                command_buffers: &[CommandBufferSubmitInfo::new(&cmd_buffer)],
+                signal_semaphores: &[SemaphoreSubmitInfo::new(
+                    &self.swapchain.render_semaphores[frame.swapchain_image_index as usize],
+                )],
+                ..Default::default()
+            };
+
+            let present_info = PresentInfo {
+                wait_semaphores: vec![SemaphorePresentInfo::new(
+                    self.swapchain.render_semaphores[frame.swapchain_image_index as usize].clone(),
+                )],
+                swapchain_infos: vec![SwapchainPresentInfo::new(
                     self.swapchain.inner.clone(),
                     frame.swapchain_image_index,
-                ),
-            )
-            .then_signal_fence_and_flush();
+                )],
+                ..Default::default()
+            };
 
-        match future.map_err(Validated::unwrap) {
-            Ok(mut future) => {
-                future.cleanup_finished();
-
-                self.previous_frame_end = Some(future.boxed());
+            unsafe {
+                q.submit(
+                    &[submit_info],
+                    Some(&self.submit_fences[frame.flight_index]),
+                )
+                .and_then(|_| q.present(&present_info))
+                .and_then(|mut suboptimal| suboptimal.next().unwrap()) // we can unwrap because we know we're presenting to only one swapchain
+                .inspect(|_| {
+                    // advance the frame in flight if those were successful
+                    self.frame_in_flight_index = (frame.flight_index + 1) % FRAMES_IN_FLIGHT
+                })
             }
+        }) {
+            Ok(suboptimal) if suboptimal => {
+                log::info!("suboptimal present, marking swapchain for recreation");
+                self.swapchain_needs_recreate = true;
+            }
+            Ok(_) => {}
             Err(VulkanError::OutOfDate) => {
                 log::warn!("swapchain is out of date at the end of frame");
                 self.swapchain_needs_recreate = true;
-                self.previous_frame_end = Some(sync::now(self.gpu.device.clone()).boxed());
             }
-            Err(e) => {
-                log::warn!("error when flushing future: {}", e);
-                self.previous_frame_end = Some(sync::now(self.gpu.device.clone()).boxed());
-            }
+            Err(e) => Err(e)?,
         }
 
         Ok(())
@@ -440,9 +583,9 @@ impl SurfaceState {
 }
 
 pub struct FrameRecord {
-    pub cmd_builder: AutoCommandBufferBuilder<PrimaryAutoCommandBuffer>,
+    pub cmd_buffer: RecordingCommandBuffer,
+    pub flight_index: usize,
     pub swapchain_image_index: u32,
-    future: Box<dyn GpuFuture>,
 }
 
 #[derive(Debug)]

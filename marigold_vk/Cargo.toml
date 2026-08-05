@@ -10,7 +10,7 @@ rayon = "1.11.0"
 
 [dependencies]
 # rendering
-vulkano = { git = "https://github.com/vulkano-rs/vulkano", rev = "fb1096f" }
+vulkano = { git = "https://github.com/vulkano-rs/vulkano", rev = "fb4cfdb" }
 winit = "0.30.13"
 
 # game engine stuff
