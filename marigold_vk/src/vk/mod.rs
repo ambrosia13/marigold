@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::{any::Any, sync::Arc};
 
 use anyhow::anyhow;
 use bevy_ecs::resource::Resource;
@@ -51,9 +51,7 @@ pub struct GpuHandle {
     pub physical_device: Arc<PhysicalDevice>,
     pub device: Arc<Device>,
     pub queue: Arc<Queue>,
-
     pub memory_allocator: Arc<StandardMemoryAllocator>,
-    pub cmd_buffer_allocator: Arc<StandardCommandBufferAllocator>,
 }
 
 impl GpuHandle {
@@ -87,10 +85,7 @@ impl GpuHandle {
             },
         )?;
 
-        log::info!(
-            "Created instance, max api version is {}",
-            instance.api_version()
-        );
+        log::info!("Created instance");
 
         Ok(GpuHandlePreInit { library, instance })
     }
@@ -155,6 +150,12 @@ impl GpuHandle {
             .ok_or(anyhow!("no suitable physical devices found"))?;
 
         log::info!("Created physical device and selected the queue family index");
+        log::info!(
+            "Using {}; {:?}; Vulkan {}",
+            physical_device.properties().device_name,
+            physical_device.properties().device_type,
+            physical_device.properties().api_version
+        );
 
         let (device, mut queues) = Device::new(
             &physical_device,
@@ -175,12 +176,7 @@ impl GpuHandle {
 
         let memory_allocator = Arc::new(StandardMemoryAllocator::new(&device, &Default::default()));
 
-        let cmd_buffer_allocator = Arc::new(StandardCommandBufferAllocator::new(
-            &device,
-            &Default::default(),
-        ));
-
-        log::info!("Created memory allocator and command buffer allocator");
+        log::info!("Created memory allocator");
 
         Ok((
             Self {
@@ -190,7 +186,6 @@ impl GpuHandle {
                 device,
                 queue,
                 memory_allocator,
-                cmd_buffer_allocator,
             },
             surface,
         ))
@@ -259,8 +254,11 @@ impl SwapchainState {
 
         Ok((
             SwapchainCreateInfo {
-                min_image_count: (caps.min_image_count + 1)
-                    .min(caps.max_image_count.unwrap_or(u32::MAX)),
+                // swapchain images is one more than frames in flight
+                min_image_count: (FRAMES_IN_FLIGHT as u32 + 1).clamp(
+                    caps.min_image_count,
+                    caps.max_image_count.unwrap_or(u32::MAX),
+                ),
                 image_format: surface_format,
                 image_extent: window.inner_size().into(),
                 image_usage: ImageUsage::COLOR_ATTACHMENT,
@@ -306,7 +304,10 @@ impl SwapchainState {
         })
     }
 
-    pub fn recreate(&mut self) -> anyhow::Result<()> {
+    pub fn recreate(
+        &mut self,
+        deletion_queue: &mut Vec<Arc<dyn Any + Send + Sync>>,
+    ) -> anyhow::Result<()> {
         let (create_info, format) =
             Self::get_swapchain_create_info(&self.gpu, self.surface.clone(), self.window.clone())?;
 
@@ -317,6 +318,12 @@ impl SwapchainState {
         );
 
         let (new_swapchain, new_images) = self.inner.recreate(&create_info)?;
+
+        // queue the previous resources for deletion
+        for view in &self.views {
+            deletion_queue.push(view.clone());
+        }
+        deletion_queue.push(self.inner.clone());
 
         self.inner = new_swapchain;
         self.images = new_images;
@@ -347,6 +354,9 @@ pub struct SurfaceState {
     pub acquire_semaphores: [Arc<Semaphore>; FRAMES_IN_FLIGHT], // used so the gpu doesn't begin executing cmds until the swapchain image is available
     pub submit_fences: [Arc<Fence>; FRAMES_IN_FLIGHT], // used so the cpu does not render more than FRAMES_IN_FLIGHT frames ahead of the gpu
 
+    pub cmd_buffer_allocators: [Arc<StandardCommandBufferAllocator>; FRAMES_IN_FLIGHT],
+    pub deletion_queues: [Vec<Arc<dyn Any + Send + Sync>>; FRAMES_IN_FLIGHT],
+
     swapchain_needs_recreate: bool,
 }
 
@@ -376,6 +386,17 @@ impl SurfaceState {
             )
         });
 
+        let cmd_buffer_allocators = std::array::from_fn(|_| {
+            Arc::new(StandardCommandBufferAllocator::new(
+                &gpu.device,
+                &Default::default(),
+            ))
+        });
+
+        log::info!("created command buffer allocators for each frame");
+
+        let deletion_queues = std::array::from_fn(|_| vec![]);
+
         Ok(Self {
             surface,
             swapchain,
@@ -384,6 +405,8 @@ impl SurfaceState {
             frame_in_flight_index: 0,
             acquire_semaphores,
             submit_fences,
+            cmd_buffer_allocators,
+            deletion_queues,
             swapchain_needs_recreate: false,
         })
     }
@@ -397,15 +420,18 @@ impl SurfaceState {
     }
 
     pub fn begin_frame(&mut self) -> Result<FrameRecord, FrameError> {
-        log::info!("beginning frame {}", self.frame_in_flight_index);
-
         // wait until the previous cycle's fence is signaled, so we don't render too far ahead
         self.submit_fences[self.frame_in_flight_index]
             .wait(None)
             .unwrap();
 
+        // clear previous deletion queue cycle
+        self.deletion_queues[self.frame_in_flight_index].clear();
+
         if self.swapchain_needs_recreate {
-            self.swapchain.recreate().map_err(FrameError::Other)?;
+            self.swapchain
+                .recreate(&mut self.deletion_queues[self.frame_in_flight_index])
+                .map_err(FrameError::Other)?;
             self.swapchain_needs_recreate = false;
         }
 
@@ -427,6 +453,12 @@ impl SurfaceState {
                 Err(e) => return Err(FrameError::Vulkan(e)),
             };
 
+        log::info!(
+            "beginning frame {}, swapchain image {}",
+            self.frame_in_flight_index,
+            swapchain_image_index
+        );
+
         if suboptimal {
             self.swapchain_needs_recreate = true;
             log::warn!(
@@ -436,7 +468,7 @@ impl SurfaceState {
 
         // initialize the command buffer with a clear command
         let mut cmd_buffer = RecordingCommandBuffer::new(
-            &self.gpu.cmd_buffer_allocator,
+            &self.cmd_buffer_allocators[self.frame_in_flight_index],
             self.gpu.queue.queue_family_index(),
             CommandBufferLevel::Primary,
             &CommandBufferBeginInfo {
@@ -456,7 +488,7 @@ impl SurfaceState {
                     dst_access: AccessFlags::COLOR_ATTACHMENT_WRITE,
 
                     old_layout: ImageLayout::Undefined,
-                    new_layout: ImageLayout::General,
+                    new_layout: ImageLayout::ColorAttachmentOptimal,
 
                     subresource_range: ImageSubresourceRange {
                         aspects: ImageAspects::COLOR,
@@ -504,7 +536,7 @@ impl SurfaceState {
                     dst_stages: PipelineStages::BOTTOM_OF_PIPE,
                     dst_access: AccessFlags::empty(),
 
-                    old_layout: ImageLayout::General,
+                    old_layout: ImageLayout::ColorAttachmentOptimal,
                     new_layout: ImageLayout::PresentSrc,
 
                     subresource_range: ImageSubresourceRange {
