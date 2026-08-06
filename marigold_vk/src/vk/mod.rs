@@ -3,12 +3,11 @@ use std::{any::Any, sync::Arc};
 use anyhow::anyhow;
 use bevy_ecs::resource::Resource;
 use vulkano::{
-    Validated, VulkanError, VulkanLibrary,
+    VulkanError, VulkanLibrary,
     command_buffer::{
-        AutoCommandBufferBuilder, CommandBufferBeginInfo, CommandBufferLevel,
-        CommandBufferSubmitInfo, CommandBufferUsage, PrimaryAutoCommandBuffer,
+        CommandBufferBeginInfo, CommandBufferLevel, CommandBufferSubmitInfo, CommandBufferUsage,
         RecordingCommandBuffer, SemaphoreSubmitInfo, SubmitInfo,
-        allocator::{CommandBufferAllocator, StandardCommandBufferAllocator},
+        allocator::StandardCommandBufferAllocator,
         raw::{DependencyInfo, ImageMemoryBarrier, RenderingAttachmentInfo, RenderingInfo},
     },
     device::{
@@ -23,12 +22,11 @@ use vulkano::{
     render_pass::{AttachmentLoadOp, AttachmentStoreOp},
     swapchain::{
         AcquireNextImageInfo, PresentInfo, PresentMode, SemaphorePresentInfo, Surface, Swapchain,
-        SwapchainAcquireFuture, SwapchainCreateInfo, SwapchainPresentInfo,
+        SwapchainCreateInfo, SwapchainPresentInfo,
     },
     sync::{
-        self, AccessFlags, GpuFuture, MemoryBarrier, PipelineStages,
+        AccessFlags, PipelineStages,
         fence::{Fence, FenceCreateFlags, FenceCreateInfo},
-        future::FenceSignalFuture,
         semaphore::{Semaphore, SemaphoreCreateInfo},
     },
 };
@@ -318,6 +316,8 @@ impl SwapchainState {
         &mut self,
         deletion_queue: &mut Vec<Arc<dyn Any + Send + Sync>>,
     ) -> anyhow::Result<()> {
+        // self.gpu.device.wait_idle()?;
+
         let (create_info, format) =
             Self::get_swapchain_create_info(&self.gpu, self.surface.clone(), self.window.clone())?;
 
@@ -330,9 +330,10 @@ impl SwapchainState {
         let (new_swapchain, new_images) = self.inner.recreate(&create_info)?;
 
         // queue the previous resources for deletion
-        for view in &self.views {
-            deletion_queue.push(view.clone());
-        }
+        self.views
+            .drain(..)
+            .for_each(|v| deletion_queue.push(v.clone()));
+
         deletion_queue.push(self.inner.clone());
 
         self.inner = new_swapchain;
@@ -346,11 +347,36 @@ impl SwapchainState {
 
         self.format = format;
 
+        self.render_semaphores
+            .drain(..)
+            .for_each(|s| deletion_queue.push(s.clone()));
+
+        self.render_semaphores = (0..self.images.len())
+            .map(|i| {
+                let semaphore = Arc::new(
+                    Semaphore::new(&self.gpu.device, &SemaphoreCreateInfo::default()).unwrap(),
+                );
+
+                unsafe {
+                    self.gpu
+                        .device
+                        .set_debug_utils_object_name(
+                            &semaphore,
+                            Some(&format!("Render Semaphore {}", i)),
+                        )
+                        .unwrap()
+                };
+
+                semaphore
+            })
+            .collect();
+
         Ok(())
     }
 }
 
 // non-send resource
+#[derive(Resource)]
 pub struct SurfaceState {
     pub surface: Arc<Surface>,
     pub swapchain: SwapchainState,
@@ -453,14 +479,14 @@ impl SurfaceState {
         // wait until the previous cycle's fence is signaled, so we don't render too far ahead
         self.submit_fences[self.frame_in_flight_index]
             .wait(None)
-            .unwrap();
+            .map_err(FrameError::Vulkan)?;
 
         // reset the fence so it can be signaled again later
         unsafe {
             self.submit_fences[self.frame_in_flight_index]
                 .reset()
-                .unwrap()
-        };
+                .map_err(FrameError::Vulkan)
+        }?;
 
         // clear previous deletion queue cycle
         self.deletion_queues[self.frame_in_flight_index].clear();
@@ -618,7 +644,8 @@ impl SurfaceState {
                     self.window.pre_present_notify();
                     q.present(&present_info)
                 })
-                .and_then(|mut suboptimal| suboptimal.next().unwrap()) // we can unwrap because we know we're presenting to only one swapchain
+                // we can unwrap here because we know we're presenting to only one swapchain
+                .and_then(|mut suboptimal| suboptimal.next().unwrap())
                 .inspect(|_| {
                     // advance the frame in flight if those were successful
                     self.frame_in_flight_index = (frame.flight_index + 1) % FRAMES_IN_FLIGHT

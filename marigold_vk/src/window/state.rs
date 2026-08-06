@@ -67,7 +67,7 @@ impl AppState {
 
         // initial world data
         world.insert_resource(gpu);
-        world.insert_non_send_resource(surface_state);
+        world.insert_resource(surface_state);
 
         // run startup systems
         schedules.on_init_message_setup.run(&mut world);

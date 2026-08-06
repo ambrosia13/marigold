@@ -191,9 +191,13 @@ impl ApplicationHandler for App {
             WindowEvent::MouseWheel { .. } => {}
 
             // lifecycle events
-            WindowEvent::CloseRequested => event_loop.exit(),
+            WindowEvent::CloseRequested => {
+                let surface_state = world.resource::<SurfaceState>();
+                surface_state.gpu.device.wait_idle().unwrap();
+                event_loop.exit();
+            }
             WindowEvent::Resized(size) => {
-                let mut surface_state = world.non_send_resource_mut::<SurfaceState>();
+                let mut surface_state = world.resource_mut::<SurfaceState>();
                 surface_state.resize(size);
 
                 schedules.on_resize.run(world);
@@ -221,7 +225,7 @@ impl ApplicationHandler for App {
                 schedules.on_redraw_pre_frame.run(world);
 
                 // initialize frame
-                let mut surface_state = world.non_send_resource_mut::<SurfaceState>();
+                let mut surface_state = world.resource_mut::<SurfaceState>();
                 let frame = match surface_state.begin_frame() {
                     Ok(r) => r,
                     Err(FrameError::SkipFrame) => {
@@ -238,7 +242,7 @@ impl ApplicationHandler for App {
                 };
 
                 // pass the frame ownership over to the world
-                world.insert_non_send_resource(frame);
+                world.insert_non_send(frame);
 
                 // render the frame
                 schedules.on_redraw_render.run(world);
@@ -249,9 +253,9 @@ impl ApplicationHandler for App {
                 }
 
                 // now that the frame has been rendered, take frame data back so we can draw egui on top
-                let frame = world.remove_non_send_resource::<FrameRecord>().unwrap();
+                let frame = world.remove_non_send::<FrameRecord>().unwrap();
 
-                let mut surface_state = world.non_send_resource_mut::<SurfaceState>();
+                let mut surface_state = world.resource_mut::<SurfaceState>();
                 surface_state
                     .finish_frame(frame)
                     .expect("failed to submit frame");
