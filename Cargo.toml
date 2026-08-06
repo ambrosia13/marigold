@@ -10,3 +10,4 @@ anyhow = { version = "1.0.104" }
 rayon = { version = "1.12.0" }
 bytemuck = { version = "1.25.2" }
 rand = { version = "0.10.2" }
+gltf = { version = "1.4.1" }

@@ -5,11 +5,11 @@ edition = "2024"
 
 [dependencies]
 # game engine stuff
-glam = { version = "0.33.3", features = ["bytemuck"] }
-gltf = "1.4.1"
+glam.workspace = true
+gltf.workspace = true
 
 # logging
-log = "0.4.29"
+log.workspace = true
 
 # workspace dependencies
 bvh = { path = "../bvh" }
