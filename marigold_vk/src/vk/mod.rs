@@ -285,10 +285,21 @@ impl SwapchainState {
             .map(|img| ImageView::new_default(img))
             .collect::<Result<Vec<_>, _>>()?;
 
-        let render_semaphores = images
-            .iter()
-            .map(|_| {
-                Arc::new(Semaphore::new(&gpu.device, &SemaphoreCreateInfo::default()).unwrap())
+        let render_semaphores = (0..images.len())
+            .map(|i| {
+                let semaphore =
+                    Arc::new(Semaphore::new(&gpu.device, &SemaphoreCreateInfo::default()).unwrap());
+
+                unsafe {
+                    gpu.device
+                        .set_debug_utils_object_name(
+                            &semaphore,
+                            Some(&format!("Render Semaphore {}", i)),
+                        )
+                        .unwrap()
+                };
+
+                semaphore
             })
             .collect();
 
@@ -368,12 +379,24 @@ impl SurfaceState {
     ) -> anyhow::Result<Self> {
         let swapchain = SwapchainState::new(gpu, surface.clone(), window.clone())?;
 
-        let acquire_semaphores = std::array::from_fn(|_| {
-            Arc::new(Semaphore::new(&gpu.device, &SemaphoreCreateInfo::default()).unwrap())
+        let acquire_semaphores = std::array::from_fn(|i| {
+            let semaphore =
+                Arc::new(Semaphore::new(&gpu.device, &SemaphoreCreateInfo::default()).unwrap());
+
+            unsafe {
+                gpu.device
+                    .set_debug_utils_object_name(
+                        &semaphore,
+                        Some(&format!("Acquire Semaphore {}", i)),
+                    )
+                    .unwrap()
+            };
+
+            semaphore
         });
 
-        let submit_fences = std::array::from_fn(|_| {
-            Arc::new(
+        let submit_fences = std::array::from_fn(|i| {
+            let fence = Arc::new(
                 Fence::new(
                     &gpu.device,
                     &FenceCreateInfo {
@@ -383,7 +406,15 @@ impl SurfaceState {
                     },
                 )
                 .unwrap(),
-            )
+            );
+
+            unsafe {
+                gpu.device
+                    .set_debug_utils_object_name(&fence, Some(&format!("Submit Fence {}", i)))
+                    .unwrap()
+            };
+
+            fence
         });
 
         let cmd_buffer_allocators = std::array::from_fn(|_| {
@@ -425,6 +456,13 @@ impl SurfaceState {
             .wait(None)
             .unwrap();
 
+        // reset the fence so it can be signaled again later
+        unsafe {
+            self.submit_fences[self.frame_in_flight_index]
+                .reset()
+                .unwrap()
+        };
+
         // clear previous deletion queue cycle
         self.deletion_queues[self.frame_in_flight_index].clear();
 
@@ -452,12 +490,6 @@ impl SurfaceState {
                 }
                 Err(e) => return Err(FrameError::Vulkan(e)),
             };
-
-        log::info!(
-            "beginning frame {}, swapchain image {}",
-            self.frame_in_flight_index,
-            swapchain_image_index
-        );
 
         if suboptimal {
             self.swapchain_needs_recreate = true;
@@ -555,13 +587,6 @@ impl SurfaceState {
         // command submission failing, just surface presentation failing?
         let cmd_buffer = unsafe { frame.cmd_buffer.end() }?;
 
-        // reset the fence now that we know the frame work is complete
-        unsafe {
-            self.submit_fences[self.frame_in_flight_index]
-                .reset()
-                .unwrap()
-        };
-
         match self.gpu.queue.with(|mut q| {
             let submit_info = SubmitInfo {
                 wait_semaphores: &[SemaphoreSubmitInfo::new(
@@ -590,7 +615,10 @@ impl SurfaceState {
                     &[submit_info],
                     Some(&self.submit_fences[frame.flight_index]),
                 )
-                .and_then(|_| q.present(&present_info))
+                .and_then(|_| {
+                    self.window.pre_present_notify();
+                    q.present(&present_info)
+                })
                 .and_then(|mut suboptimal| suboptimal.next().unwrap()) // we can unwrap because we know we're presenting to only one swapchain
                 .inspect(|_| {
                     // advance the frame in flight if those were successful
@@ -598,7 +626,7 @@ impl SurfaceState {
                 })
             }
         }) {
-            Ok(suboptimal) if suboptimal => {
+            Ok(suboptimal) if suboptimal && !self.swapchain_needs_recreate => {
                 log::info!("suboptimal present, marking swapchain for recreation");
                 self.swapchain_needs_recreate = true;
             }

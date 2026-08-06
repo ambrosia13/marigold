@@ -222,8 +222,7 @@ impl ApplicationHandler for App {
 
                 // initialize frame
                 let mut surface_state = world.non_send_resource_mut::<SurfaceState>();
-
-                let mut frame = match surface_state.begin_frame() {
+                let frame = match surface_state.begin_frame() {
                     Ok(r) => r,
                     Err(FrameError::SkipFrame) => {
                         return;
@@ -238,45 +237,6 @@ impl ApplicationHandler for App {
                     }
                 };
 
-                // frame
-                //     .cmd_builder
-                //     .clear_color_image(vulkano::command_buffer::ClearColorImageInfo {
-                //         image_layout: vulkano::image::ImageLayout::General,
-                //         clear_value: vulkano::format::ClearColorValue::Float([1.0, 0.5, 0.25, 1.0]),
-                //         ..vulkano::command_buffer::ClearColorImageInfo::new(
-                //             surface_state.swapchain.images[frame.swapchain_image_index as usize]
-                //                 .clone(),
-                //         )
-                //     })
-                //     .unwrap();
-
-                // frame
-                //     .cmd_builder
-                //     .begin_rendering(vulkano::command_buffer::RenderingInfo {
-                //         color_attachments: vec![Some(
-                //             vulkano::command_buffer::RenderingAttachmentInfo {
-                //                 load_op: vulkano::render_pass::AttachmentLoadOp::Clear,
-                //                 store_op: vulkano::render_pass::AttachmentStoreOp::Store,
-                //                 clear_value: Some([1.0, 0.5, 0.25].into()),
-                //                 ..vulkano::command_buffer::RenderingAttachmentInfo::image_view(
-                //                     surface_state.swapchain.views
-                //                         [frame.swapchain_image_index as usize]
-                //                         .clone(),
-                //                 )
-                //             },
-                //         )],
-                //         ..Default::default()
-                //     })
-                //     .unwrap();
-
-                // frame.cmd_builder.end_rendering().unwrap();
-
-                // // need lifetime/borrowing shenanigans because we manually render egui rather than put it in a system
-                // let surface_texture_view = frame.surface_texture_view.clone();
-
-                // let mut egui_render_state = world.non_send_resource_mut::<EguiRenderState>();
-                // egui_render_state.begin_frame(window);
-
                 // pass the frame ownership over to the world
                 world.insert_non_send_resource(frame);
 
@@ -290,22 +250,6 @@ impl ApplicationHandler for App {
 
                 // now that the frame has been rendered, take frame data back so we can draw egui on top
                 let frame = world.remove_non_send_resource::<FrameRecord>().unwrap();
-
-                // let mut egui_render_state = world.non_send_resource_mut::<EguiRenderState>();
-                // egui_render_state.end_frame_and_draw(
-                //     &gpu.device,
-                //     &gpu.queue,
-                //     &mut frame.encoder,
-                //     window,
-                //     &surface_texture_view,
-                //     egui_wgpu::ScreenDescriptor {
-                //         size_in_pixels: [window.inner_size().width, window.inner_size().height],
-                //         pixels_per_point: window.scale_factor() as f32,
-                //     },
-                // );
-
-                // clean up and present the frame
-                window.pre_present_notify();
 
                 let mut surface_state = world.non_send_resource_mut::<SurfaceState>();
                 surface_state
