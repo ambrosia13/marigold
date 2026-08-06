@@ -1,9 +1,8 @@
 use bvh::{AsBoundingVolume, AsBoundingVolumeIndices, BoundingVolume};
 use derived_deref::Deref;
 use glam::{Mat3A, Mat4, Vec3, Vec3A};
-use gpu_layout::{AsGpuBytes, GpuBytes};
 
-#[derive(AsGpuBytes, Default, Clone, Copy)]
+#[derive(Default, Clone, Copy)]
 pub struct MeshVertex {
     pub position: Vec3,
     pub uv_x: f32,
@@ -22,7 +21,7 @@ impl MeshVertex {
     }
 }
 
-#[derive(Deref, AsGpuBytes, Default, Clone, Copy)]
+#[derive(Deref, Default, Clone, Copy)]
 pub struct MeshTriangle {
     pub indices: [u32; 3],
 }
@@ -115,26 +114,6 @@ pub struct UploadedMesh {
     pub transform: Mat4,
     pub triangle_count: u32,
     pub blas_root: u32,
-}
-
-impl AsGpuBytes for UploadedMesh {
-    fn as_gpu_bytes<L: gpu_layout::GpuLayout + ?Sized>(&self) -> GpuBytes<'_, L> {
-        let mut buf = GpuBytes::empty();
-
-        buf.write(&self.bounds_min);
-        buf.write(&self.vertex_offset);
-        buf.write(&self.bounds_max);
-        buf.write(&self.triangle_offset);
-        buf.write(&self.triangle_count);
-        buf.write(&self.blas_root);
-
-        let inverse_transform = self.transform.inverse();
-
-        buf.write(&self.transform);
-        buf.write(&inverse_transform);
-
-        buf
-    }
 }
 
 impl AsBoundingVolume for UploadedMesh {

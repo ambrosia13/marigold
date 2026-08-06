@@ -1,7 +1,6 @@
 use std::mem::MaybeUninit;
 
 use glam::Vec3;
-use gpu_layout::AsGpuBytes;
 
 use crate::{BoundingVolumeHierarchy, NODE_COST, OBJECT_COST};
 

@@ -4,9 +4,9 @@ version = "0.1.0"
 edition = "2024"
 
 [build-dependencies]
-regex = "1.12.2"
-chrono = "0.4.42"
-rayon = "1.11.0"
+regex = "1.13.1"
+chrono = "0.4.45"
+rayon.workspace = true
 
 [dependencies]
 # rendering
@@ -14,29 +14,25 @@ vulkano = { git = "https://github.com/vulkano-rs/vulkano", rev = "fb4cfdb" }
 winit = "0.30.13"
 
 # game engine stuff
-bevy_ecs = { version = "0.18.1", features = ["debug"] }
-glam = "0.30.9"
+bevy_ecs = { version = "0.19.0", features = ["debug"] }
+glam.workspace = true
 gltf = "1.4.1"
 
-# # user interface
-
 # logging
-env_logger = "0.11.8"
-log = "0.4.29"
+env_logger = "0.11.11"
+log.workspace = true
 
 # general utility
-# pollster = "0.4.0"
-anyhow = "1.0.100"
-derived-deref = "2.1.0"
-rayon = "1.11.0"
+anyhow.workspace = true
+derived-deref.workspace = true
+rayon.workspace = true
 itertools = "0.15.0"
 
 # data manipulation
-gpu_layout = "0.2.2"
-bytemuck = "1.24.0"
+bytemuck.workspace = true
 
 # noise & random
-rand = "0.9.2"
+rand.workspace = true
 
 # workspace dependencies
 bvh = { path = "../bvh" }

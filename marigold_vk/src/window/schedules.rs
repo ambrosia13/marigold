@@ -1,4 +1,4 @@
-use bevy_ecs::schedule::{ExecutorKind, Schedule, ScheduleLabel};
+use bevy_ecs::schedule::{Schedule, ScheduleLabel, SingleThreadedExecutor};
 
 use crate::{
     app::time,
@@ -77,18 +77,18 @@ impl Default for Schedules {
         if crate::util::get_env_flag("ECS_SINGLE_THREADED") {
             log::info!("using single threaded ECS system execution due to environment variable");
 
-            on_init_message_setup.set_executor_kind(ExecutorKind::SingleThreaded);
-            on_init_render_setup.set_executor_kind(ExecutorKind::SingleThreaded);
-            on_init_app_setup.set_executor_kind(ExecutorKind::SingleThreaded);
-            on_init_menu_setup.set_executor_kind(ExecutorKind::SingleThreaded);
+            on_init_message_setup.set_executor(SingleThreadedExecutor::default());
+            on_init_render_setup.set_executor(SingleThreadedExecutor::default());
+            on_init_app_setup.set_executor(SingleThreadedExecutor::default());
+            on_init_menu_setup.set_executor(SingleThreadedExecutor::default());
 
-            on_redraw_pre_frame.set_executor_kind(ExecutorKind::SingleThreaded);
-            on_redraw_render.set_executor_kind(ExecutorKind::SingleThreaded);
-            on_redraw_post_frame.set_executor_kind(ExecutorKind::SingleThreaded);
-            on_redraw_message_update.set_executor_kind(ExecutorKind::SingleThreaded);
-            on_redraw_menu_update.set_executor_kind(ExecutorKind::SingleThreaded);
+            on_redraw_pre_frame.set_executor(SingleThreadedExecutor::default());
+            on_redraw_render.set_executor(SingleThreadedExecutor::default());
+            on_redraw_post_frame.set_executor(SingleThreadedExecutor::default());
+            on_redraw_message_update.set_executor(SingleThreadedExecutor::default());
+            on_redraw_menu_update.set_executor(SingleThreadedExecutor::default());
 
-            on_resize.set_executor_kind(ExecutorKind::SingleThreaded);
+            on_resize.set_executor(SingleThreadedExecutor::default());
         }
 
         let mut schedules = Self {

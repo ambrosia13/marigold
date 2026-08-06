@@ -1,8 +1,12 @@
 [workspace]
 resolver = "3"
-members = ["bvh", "bvh_sample_collector", "gltf_loading", "marigold", "marigold_vk", "mesh_interface"]
+members = ["gltf_loading", "marigold_vk", "mesh_interface", "bvh"]
 
-# since these components are performance critical and math heavy,
-# depend on them in release mode
-[profile.dev.package.bvh]
-opt-level = 3
+[workspace.dependencies]
+glam = { version = "0.33.3", features = ["bytemuck"] }
+derived-deref = "2.1.0"
+log = { version = "0.4.33" }
+anyhow = { version = "1.0.104" }
+rayon = { version = "1.12.0" }
+bytemuck = { version = "1.25.2" }
+rand = { version = "0.10.2" }

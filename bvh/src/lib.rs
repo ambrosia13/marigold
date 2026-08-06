@@ -10,8 +10,7 @@ use std::{
 
 use bytemuck::NoUninit;
 use glam::Vec3A;
-use gpu_layout::{AsGpuBytes, GpuBytes};
-use rand::Rng;
+use rand::{Rng, RngExt};
 use serde::Serialize;
 
 pub mod wide;
@@ -53,14 +52,6 @@ impl<T: AsBoundingVolume> AsBoundingVolumeIndices<()> for T {
 pub struct BoundingVolume {
     pub min: Vec3A,
     pub max: Vec3A,
-}
-
-impl AsGpuBytes for BoundingVolume {
-    // we can use a no-copy cast, since the cpu structure will exactly match the gpu structure in this exact case
-    // however this specific impl is unlikely to be used for cases when we can fit extra vars in the padding bytes
-    fn as_gpu_bytes<L: gpu_layout::GpuLayout + ?Sized>(&self) -> GpuBytes<'_, L> {
-        GpuBytes::from_slice(bytemuck::bytes_of(self), 16)
-    }
 }
 
 impl AsBoundingVolume for BoundingVolume {
@@ -177,50 +168,6 @@ pub struct BvhNode<const MIN_LEAF_OBJECTS: u32, const MAX_LEAF_OBJECTS: u32> {
     pub start_index: u32,
     pub len: u32,
     pub child_node: u32,
-}
-
-impl<const MIN_LEAF_OBJECTS: u32, const MAX_LEAF_OBJECTS: u32> AsGpuBytes
-    for BvhNode<MIN_LEAF_OBJECTS, MAX_LEAF_OBJECTS>
-{
-    fn as_gpu_bytes<L: gpu_layout::GpuLayout + ?Sized>(&self) -> GpuBytes<'_, L> {
-        let mut buf = GpuBytes::empty();
-
-        buf.write(&self.bounds.min);
-        buf.write(&self.start_index);
-        buf.write(&self.bounds.max);
-
-        if MIN_LEAF_OBJECTS == 1 && MAX_LEAF_OBJECTS == 1 {
-            // no need to encode length at all, we know leaf count is exactly 1
-            // and leaf node is checked as child_node == 0
-            buf.write(&self.child_node);
-        } else {
-            let len_overflow = MAX_LEAF_OBJECTS.next_power_of_two();
-
-            // number of bits required for the length
-            let len_bits = len_overflow.ilog2();
-            let child_node_bits = 32 - len_bits;
-
-            assert!(len_bits < 32);
-
-            if self.child_node == 0 {
-                // make sure the length fits in the bits
-                //
-                // note: this assertion is technically not required, since this is ensured by the
-                // bvh construction itself, but i'm keeping it in just in case of future regression
-                assert!(self.len < len_overflow);
-            }
-
-            let len_mask = (1 << len_bits) - 1;
-            let child_node_mask = !len_mask;
-
-            let packed = (self.len & len_mask) << child_node_bits;
-            let packed = packed | (self.child_node & child_node_mask);
-
-            buf.write(&packed);
-        }
-
-        buf
-    }
 }
 
 impl<const MIN_LEAF_OBJECTS: u32, const MAX_LEAF_OBJECTS: u32>

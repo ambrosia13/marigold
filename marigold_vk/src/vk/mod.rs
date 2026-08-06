@@ -120,8 +120,7 @@ impl GpuHandle {
 
             descriptor_binding_partially_bound: true,
 
-            shader_storage_image_read_without_format: true,
-            shader_storage_image_write_without_format: true,
+            scalar_block_layout: true,
             ..Default::default()
         };
 

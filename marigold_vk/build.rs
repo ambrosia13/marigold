@@ -8,15 +8,6 @@ use std::path::Path;
 use std::process::Command;
 use std::sync::mpsc::{self, Sender};
 
-#[derive(PartialEq)]
-#[allow(unused)]
-enum CompileTarget {
-    SpirV,
-    Wgsl,
-}
-
-const TARGET: CompileTarget = CompileTarget::SpirV;
-
 const INPUT_DIRECTORY: &str = "assets/shaders/slang";
 const OUTPUT_DIRECTORY: &str = "assets/shaders/target";
 const ERROR_DIRECTORY: &str = "shader_compile_errors";
@@ -66,43 +57,24 @@ fn compile(slangc: &str, regex: &Regex, debug_info: bool, errors: Sender<String>
         //     output_path.to_string_lossy()
         // );
 
-        let target = match TARGET {
-            CompileTarget::SpirV => "spirv",
-            CompileTarget::Wgsl => "wgsl",
-        };
-
         let mut cmd = Command::new(slangc);
 
         cmd.arg(path)
             .arg("-o")
             .arg(&output_path)
             .arg("-target")
-            .arg(target)
+            .arg("spirv")
+            .arg("-fvk-use-entrypoint-name")
             // to avoid uncaught errors, don't let slang optimize out shader params
             .arg("-preserve-params");
-
-        if TARGET == CompileTarget::SpirV {
-            cmd.arg("-fvk-use-entrypoint-name");
-        }
 
         if debug_info {
             cmd.arg("-g3"); // maximum debug info
         }
 
-        //println!("cargo:warning={:?}", cmd);
-
         let output = cmd.output().unwrap();
 
         if !output.status.success() {
-            // let log_file = match log_file {
-            //     Some(file) => file,
-            //     None => {
-            //         // create the file and use it
-            //         *log_file = Some(update_log());
-            //         log_file.as_mut().unwrap()
-            //     }
-            // };
-
             let stdout = String::from_utf8(output.stdout).unwrap();
             let stderr = String::from_utf8(output.stderr).unwrap();
 
@@ -120,7 +92,7 @@ fn compile(slangc: &str, regex: &Regex, debug_info: bool, errors: Sender<String>
             errors.send(error).expect("failed to send shader error");
 
             println!(
-                "cargo:warning=Failed to compile {} into {}, putting detailed compiler error in {}/latest.log",
+                "cargo:warning=Failed to compile {} into {}, putting detailed compile error in {}/latest.log",
                 path.to_string_lossy(),
                 output_path.to_string_lossy(),
                 ERROR_DIRECTORY,
@@ -220,6 +192,6 @@ fn main() {
 
     // if log_file is Some then there was at least one error
     if log_file.is_some() {
-        panic!("stopping build due to shader compiler errors");
+        panic!("stopping build due to shader compile errors");
     }
 }
