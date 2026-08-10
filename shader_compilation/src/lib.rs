@@ -1,14 +1,9 @@
-pub fn add(left: u64, right: u64) -> u64 {
-    left + right
-}
+use std::cell::LazyCell;
 
-#[cfg(test)]
-mod tests {
-    use super::*;
+use regex::bytes::Regex;
 
-    #[test]
-    fn it_works() {
-        let result = add(2, 2);
-        assert_eq!(result, 4);
-    }
+thread_local! {
+    static ENTRYPOINT_REGEX: LazyCell<Regex> = LazyCell::new(|| {
+        Regex::new(r#"\[\[shader\("(\w+)"\)]]\s*\w+\s+(\w+)\s*\("#).unwrap()
+    });
 }

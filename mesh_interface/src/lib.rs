@@ -1,22 +1,20 @@
 use bvh::{AsBoundingVolume, AsBoundingVolumeIndices, BoundingVolume};
 use derived_deref::Deref;
-use glam::{Mat3A, Mat4, Vec3, Vec3A};
+use glam::{Mat3A, Mat4, Vec2, Vec3, Vec3A};
 
 #[derive(Default, Clone, Copy)]
 pub struct MeshVertex {
     pub position: Vec3,
-    pub uv_x: f32,
     pub normal: Vec3,
-    pub uv_y: f32,
+    pub uv: Vec2,
 }
 
 impl MeshVertex {
     pub fn transform(self, transform: Mat4, normal_matrix: Mat3A) -> Self {
         Self {
             position: (transform * self.position.extend(1.0)).truncate(),
-            uv_x: self.uv_x,
             normal: (normal_matrix * self.normal).normalize(),
-            uv_y: self.uv_y,
+            uv: self.uv,
         }
     }
 }

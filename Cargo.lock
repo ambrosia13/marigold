@@ -2218,6 +2218,11 @@ dependencies = [
 [[package]]
 name = "shader_compilation"
 version = "0.1.0"
+dependencies = [
+ "chrono",
+ "rayon",
+ "regex",
+]
 
 [[package]]
 name = "shlex"

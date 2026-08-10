@@ -3,7 +3,7 @@
 use std::{collections::HashMap, ffi::OsStr, path::Path};
 
 use bvh::BoundingVolume;
-use glam::{Mat4, Vec3};
+use glam::{Mat4, Vec2, Vec3};
 use gltf::{Gltf, mesh::Mode};
 use mesh_interface::{MeshInstance, MeshTriangle, MeshVertex, Scene, UnserializedMesh};
 
@@ -32,7 +32,7 @@ impl GltfScenes {
         let scale = local_transform.to_scale_rotation_translation().0;
 
         if scale != Vec3::splat(scale.x) {
-            log::warn!("Encountered a non-uniform scale in a gltf transform");
+            log::warn!("Encountered a non-uniform scale in a gltf transform, here be dragons");
         }
 
         let global_transform = parent_transform * local_transform;
@@ -118,9 +118,8 @@ impl GltfScenes {
                             )
                             .map(|((p, n), u)| MeshVertex {
                                 position: p,
-                                uv_x: u[0],
                                 normal: n,
-                                uv_y: u[1],
+                                uv: Vec2::from(u),
                             })
                             .collect();
 

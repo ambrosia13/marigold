@@ -1,7 +1,7 @@
-use bevy_ecs::schedule::{Schedule, ScheduleLabel, SingleThreadedExecutor};
+use bevy_ecs::schedule::{IntoScheduleConfigs, Schedule, ScheduleLabel, SingleThreadedExecutor};
 
 use crate::{
-    app::time,
+    app::{scene, time},
     window::messages::{
         AtmosphereRebakeMessage, ExitMessage, KeyInputMessage, MouseInputMessage,
         MouseMotionMessage, init_message_type, update_message_type,
@@ -105,9 +105,11 @@ impl Default for Schedules {
         };
 
         // app setup
-        schedules
-            .on_init_app_setup
-            .add_systems((time::Time::init, time::FpsCounter::init));
+        schedules.on_init_app_setup.add_systems((
+            time::Time::init,
+            time::FpsCounter::init,
+            (scene::enumerate_models, scene::load_active_model).chain(),
+        ));
 
         // messages
         schedules.on_init_message_setup.add_systems((

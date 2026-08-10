@@ -545,7 +545,7 @@ impl SurfaceState {
                     dst_access: AccessFlags::COLOR_ATTACHMENT_WRITE,
 
                     old_layout: ImageLayout::Undefined,
-                    new_layout: ImageLayout::ColorAttachmentOptimal,
+                    new_layout: ImageLayout::General,
 
                     subresource_range: ImageSubresourceRange {
                         aspects: ImageAspects::COLOR,
@@ -593,7 +593,7 @@ impl SurfaceState {
                     dst_stages: PipelineStages::BOTTOM_OF_PIPE,
                     dst_access: AccessFlags::empty(),
 
-                    old_layout: ImageLayout::ColorAttachmentOptimal,
+                    old_layout: ImageLayout::General,
                     new_layout: ImageLayout::PresentSrc,
 
                     subresource_range: ImageSubresourceRange {
@@ -641,6 +641,7 @@ impl SurfaceState {
                     Some(&self.submit_fences[frame.flight_index]),
                 )
                 .and_then(|_| {
+                    // on wayland, notify compositor we are about to present
                     self.window.pre_present_notify();
                     q.present(&present_info)
                 })

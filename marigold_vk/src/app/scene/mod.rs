@@ -1,7 +1,94 @@
-use glam::{Vec2, Vec3};
+use std::{
+    fs::FileType,
+    path::{Path, PathBuf},
+};
 
-pub struct Vertex {
-    pub pos: Vec3,
-    pub normal: Vec3,
-    pub uv: Vec2,
+use bevy_ecs::{
+    component::Component,
+    entity::Entity,
+    query::With,
+    system::{Commands, Single},
+};
+use gltf_loading::GltfScenes;
+use mesh_interface::{Scene, UnserializedMesh};
+use vulkano::{
+    DeviceAddress,
+    acceleration_structure::{AccelerationStructure, AccelerationStructureInstance},
+    buffer::Buffer,
+};
+
+use crate::util;
+
+/// attached to the model entity that is active
+#[derive(Component)]
+#[component(storage = "SparseSet")]
+pub struct ActiveModel;
+
+#[derive(Component)]
+pub struct ModelInfo {
+    pub name: String,
+    pub path: PathBuf,
+    pub active_scene: usize,
 }
+
+/// the cpu-side loaded model
+#[derive(Component)]
+pub struct ModelData {
+    pub meshes: Vec<UnserializedMesh>,
+    pub scenes: Vec<Scene>,
+}
+
+/// the gpu-side loaded model
+#[derive(Component)]
+pub struct UploadedModel {
+    /// (vertex_buffer, index_buffer)
+    pub mesh_buffers: Vec<(Buffer, Buffer)>,
+    pub instance_buffers: Vec<Buffer>,
+}
+
+/// system to enumerate all scenes
+pub fn enumerate_models(mut commands: Commands) -> bevy_ecs::error::Result<()> {
+    let model_dir_root_path = util::get_asset_path("meshes");
+
+    // keep track of the first model so we can mark it as the default active
+    let mut first_model = true;
+
+    for entry in std::fs::read_dir(&model_dir_root_path)? {
+        let entry = entry?;
+        assert!(entry.file_type()?.is_dir());
+
+        let model_dir_name = entry.file_name();
+        let model_name = model_dir_name.to_string_lossy();
+
+        log::info!("Found model file '{}'", model_name);
+
+        let mut mesh_entity = commands.spawn(ModelInfo {
+            name: model_name.into_owned(),
+            path: entry.path(),
+            active_scene: 0,
+        });
+
+        if first_model {
+            mesh_entity.insert(ActiveModel);
+            first_model = false;
+        }
+    }
+
+    Ok(())
+}
+
+/// system that loads active model data to the cpu
+pub fn load_active_model(
+    mut commands: Commands,
+    query: Single<(Entity, &ModelInfo), With<ActiveModel>>,
+) {
+    let (entity, info) = *query;
+
+    let gltf = GltfScenes::load(&info.path);
+    let (meshes, scenes) = gltf.into_meshes_and_scenes();
+
+    commands.entity(entity).insert(ModelData { meshes, scenes });
+}
+
+/// system that uploads active model data to the gpu, then discards the cpu-side copy
+pub fn upload_active_scene() {}
