@@ -4,6 +4,9 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+vulkano.workspace = true
+bytemuck.workspace = true
+
 # game engine stuff
 glam.workspace = true
 

@@ -8,6 +8,8 @@ use crate::{
     },
 };
 
+pub type SystemResult = bevy_ecs::error::Result<()>;
+
 #[derive(ScheduleLabel, Eq, PartialEq, Copy, Clone, Hash, Debug)]
 struct OnResizeSchedule;
 
@@ -110,6 +112,11 @@ impl Default for Schedules {
             time::FpsCounter::init,
             (scene::enumerate_models, scene::load_active_model).chain(),
         ));
+
+        // render setup
+        schedules
+            .on_init_render_setup
+            .add_systems(scene::upload_active_model);
 
         // messages
         schedules.on_init_message_setup.add_systems((

@@ -10,7 +10,7 @@ rayon.workspace = true
 
 [dependencies]
 # rendering
-vulkano = { git = "https://github.com/vulkano-rs/vulkano", rev = "fb4cfdb" }
+vulkano.workspace = true
 winit = "0.30.13"
 
 # game engine stuff

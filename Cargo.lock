@@ -1431,8 +1431,10 @@ name = "mesh_interface"
 version = "0.1.0"
 dependencies = [
  "bvh",
+ "bytemuck",
  "derived-deref",
  "glam 0.33.3",
+ "vulkano",
 ]
 
 [[package]]

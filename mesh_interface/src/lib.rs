@@ -1,8 +1,11 @@
 use bvh::{AsBoundingVolume, AsBoundingVolumeIndices, BoundingVolume};
+use bytemuck::{AnyBitPattern, Pod, Zeroable};
 use derived_deref::Deref;
 use glam::{Mat3A, Mat4, Vec2, Vec3, Vec3A};
+use vulkano::buffer::BufferContents;
 
-#[derive(Default, Clone, Copy)]
+#[derive(AnyBitPattern, Default, Clone, Copy)]
+#[repr(C)]
 pub struct MeshVertex {
     pub position: Vec3,
     pub normal: Vec3,

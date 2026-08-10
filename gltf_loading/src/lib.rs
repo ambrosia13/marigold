@@ -75,7 +75,7 @@ impl GltfScenes {
                 gltf::buffer::Source::Bin => {}
                 gltf::buffer::Source::Uri(uri) => {
                     let data = std::fs::read(path.join(uri))
-                        .expect("failed to get uri data for gltf mesh");
+                        .expect("failed to get uri data for gltf file");
                     uri_data.insert(uri, data);
                 }
             }
@@ -168,7 +168,7 @@ impl GltfScenes {
 
         for (i, mesh) in meshes.iter() {
             log::info!(
-                "Mesh #{:?} of mesh at path {} has {} vertices and {} triangles",
+                "Mesh #{:?} of model at path {} has {} vertices and {} triangles",
                 i,
                 path.to_string_lossy(),
                 mesh.vertices.len(),
