@@ -2,13 +2,18 @@ use std::{any::Any, sync::Arc};
 
 use anyhow::anyhow;
 use bevy_ecs::resource::Resource;
+use bytemuck::{NoUninit, Pod};
 use vulkano::{
     VulkanError, VulkanLibrary,
+    buffer::{Buffer, BufferContents, BufferCreateInfo, BufferMemory, BufferUsage},
     command_buffer::{
         CommandBufferBeginInfo, CommandBufferLevel, CommandBufferSubmitInfo, CommandBufferUsage,
         RecordingCommandBuffer, SemaphoreSubmitInfo, SubmitInfo,
         allocator::StandardCommandBufferAllocator,
-        raw::{DependencyInfo, ImageMemoryBarrier, RenderingAttachmentInfo, RenderingInfo},
+        raw::{
+            CopyBufferInfo, DependencyInfo, ImageMemoryBarrier, RenderingAttachmentInfo,
+            RenderingInfo,
+        },
     },
     device::{
         Device, DeviceCreateInfo, DeviceExtensions, DeviceFeatures, Queue, QueueCreateInfo,
@@ -18,7 +23,12 @@ use vulkano::{
     format::{ClearValue, Format},
     image::{Image, ImageAspects, ImageLayout, ImageSubresourceRange, ImageUsage, view::ImageView},
     instance::{Instance, InstanceCreateFlags, InstanceCreateInfo, InstanceExtensions},
-    memory::allocator::StandardMemoryAllocator,
+    memory::{
+        MappedMemoryRange,
+        allocator::{
+            AllocationCreateInfo, DeviceLayout, MemoryTypeFilter, StandardMemoryAllocator,
+        },
+    },
     render_pass::{AttachmentLoadOp, AttachmentStoreOp},
     swapchain::{
         AcquireNextImageInfo, PresentInfo, PresentMode, SemaphorePresentInfo, Surface, Swapchain,
@@ -99,33 +109,57 @@ impl GpuHandle {
         log::info!("Created surface");
 
         let device_extensions = DeviceExtensions {
-            // ext_descriptor_indexing: true,
             khr_swapchain: true,
-            // ext_descriptor_buffer: true,
+
+            khr_acceleration_structure: true,
+            khr_ray_query: true,
+            khr_ray_tracing_pipeline: true,
+            khr_ray_tracing_position_fetch: true,
+            // khr_ray_tracing_maintenance1: true,
             ..DeviceExtensions::empty()
         };
 
         let device_features = DeviceFeatures {
-            descriptor_indexing: true,
-            shader_sampled_image_array_non_uniform_indexing: true,
-
-            descriptor_binding_variable_descriptor_count: true,
-            runtime_descriptor_array: true,
             buffer_device_address: true,
+
+            descriptor_indexing: true,
+            runtime_descriptor_array: true,
+            descriptor_binding_variable_descriptor_count: true,
+            descriptor_binding_partially_bound: true,
+            shader_sampled_image_array_non_uniform_indexing: true,
 
             dynamic_rendering: true,
             synchronization2: true,
 
-            descriptor_binding_partially_bound: true,
-
             scalar_block_layout: true,
+
+            acceleration_structure: true,
+            ray_query: true,
+            ray_tracing_pipeline: true,
+            ray_tracing_position_fetch: true,
             ..Default::default()
         };
 
         let (physical_device, queue_family_index) = instance
             .enumerate_physical_devices()?
-            .filter(|pd| pd.supported_extensions().contains(&device_extensions))
-            .filter(|pd| pd.supported_features().contains(&device_features))
+            .filter(|pd| {
+                let supported = pd.supported_extensions().contains(&device_extensions);
+
+                if !supported {
+                    log::info!("Skipping physical device {} because not all of our desired extensions are supported", pd.properties().device_name);
+                }
+
+                supported
+            })
+            .filter(|pd| {
+                let supported = pd.supported_features().contains(&device_features);
+
+                if !supported {
+                    log::info!("Skipping physical device {} because not all of our desired features are supported", pd.properties().device_name);
+                }
+
+                supported
+            })
             .filter_map(|pd| {
                 pd.queue_family_properties()
                     .iter()
@@ -314,7 +348,7 @@ impl SwapchainState {
 
     pub fn recreate(
         &mut self,
-        deletion_queue: &mut Vec<Arc<dyn Any + Send + Sync>>,
+        keep_alive_list: &mut Vec<Arc<dyn Any + Send + Sync>>,
     ) -> anyhow::Result<()> {
         // self.gpu.device.wait_idle()?;
 
@@ -329,12 +363,12 @@ impl SwapchainState {
 
         let (new_swapchain, new_images) = self.inner.recreate(&create_info)?;
 
-        // queue the previous resources for deletion
+        // ensure previous resources are kept alive until the next frame cycle
         self.views
             .drain(..)
-            .for_each(|v| deletion_queue.push(v.clone()));
+            .for_each(|v| keep_alive_list.push(v.clone()));
 
-        deletion_queue.push(self.inner.clone());
+        keep_alive_list.push(self.inner.clone());
 
         self.inner = new_swapchain;
         self.images = new_images;
@@ -349,7 +383,7 @@ impl SwapchainState {
 
         self.render_semaphores
             .drain(..)
-            .for_each(|s| deletion_queue.push(s.clone()));
+            .for_each(|s| keep_alive_list.push(s.clone()));
 
         self.render_semaphores = (0..self.images.len())
             .map(|i| {
@@ -378,21 +412,19 @@ impl SwapchainState {
 // non-send resource
 #[derive(Resource)]
 pub struct SurfaceState {
-    pub surface: Arc<Surface>,
     pub swapchain: SwapchainState,
     pub window: Arc<Window>,
 
     pub gpu: GpuHandle,
-
-    pub frame_in_flight_index: usize,
 
     // one for each frame in flight
     pub acquire_semaphores: [Arc<Semaphore>; FRAMES_IN_FLIGHT], // used so the gpu doesn't begin executing cmds until the swapchain image is available
     pub submit_fences: [Arc<Fence>; FRAMES_IN_FLIGHT], // used so the cpu does not render more than FRAMES_IN_FLIGHT frames ahead of the gpu
 
     pub cmd_buffer_allocators: [Arc<StandardCommandBufferAllocator>; FRAMES_IN_FLIGHT],
-    pub deletion_queues: [Vec<Arc<dyn Any + Send + Sync>>; FRAMES_IN_FLIGHT],
+    pub keep_alive_lists: [Vec<Arc<dyn Any + Send + Sync>>; FRAMES_IN_FLIGHT],
 
+    frame_in_flight_index: usize,
     swapchain_needs_recreate: bool,
 }
 
@@ -451,10 +483,9 @@ impl SurfaceState {
 
         log::info!("created command buffer allocators for each frame");
 
-        let deletion_queues = std::array::from_fn(|_| vec![]);
+        let keep_alive_lists = std::array::from_fn(|_| vec![]);
 
         Ok(Self {
-            surface,
             swapchain,
             window,
             gpu: gpu.clone(),
@@ -462,7 +493,7 @@ impl SurfaceState {
             acquire_semaphores,
             submit_fences,
             cmd_buffer_allocators,
-            deletion_queues,
+            keep_alive_lists,
             swapchain_needs_recreate: false,
         })
     }
@@ -473,6 +504,11 @@ impl SurfaceState {
         } else {
             log::error!("invalid window resize: {:?}, skipping", new_size);
         }
+    }
+
+    /// ensures that a vulkano object is kept alive for at least as many frames in flight there are
+    pub fn keep_alive<T: Any + Send + Sync>(&mut self, obj: Arc<T>) {
+        self.keep_alive_lists[self.frame_in_flight_index].push(obj);
     }
 
     pub fn begin_frame(&mut self) -> Result<FrameRecord, FrameError> {
@@ -488,12 +524,12 @@ impl SurfaceState {
                 .map_err(FrameError::Vulkan)
         }?;
 
-        // clear previous deletion queue cycle
-        self.deletion_queues[self.frame_in_flight_index].clear();
+        // free previous cycle's keep alive list to allow resources that are unneeded to be destroyed
+        self.keep_alive_lists[self.frame_in_flight_index].clear();
 
         if self.swapchain_needs_recreate {
             self.swapchain
-                .recreate(&mut self.deletion_queues[self.frame_in_flight_index])
+                .recreate(&mut self.keep_alive_lists[self.frame_in_flight_index])
                 .map_err(FrameError::Other)?;
             self.swapchain_needs_recreate = false;
         }
@@ -673,6 +709,88 @@ pub struct FrameRecord {
     pub cmd_buffer: RecordingCommandBuffer,
     pub flight_index: usize,
     pub swapchain_image_index: u32,
+}
+
+impl FrameRecord {
+    /// uploads some data to device-local memory using a staging buffer
+    pub fn upload_buffer<T: BufferContents + Pod>(
+        &mut self,
+        surface_state: &mut SurfaceState,
+        data: &[T],
+        create_info: &BufferCreateInfo,
+        name: Option<&str>,
+    ) -> anyhow::Result<Arc<Buffer>> {
+        let buffer_ci = BufferCreateInfo {
+            usage: BufferUsage::TRANSFER_SRC,
+            ..Default::default()
+        };
+
+        let alloc_ci = AllocationCreateInfo {
+            memory_type_filter: MemoryTypeFilter::HOST_SEQUENTIAL_WRITE,
+            ..Default::default()
+        };
+
+        let layout = DeviceLayout::for_value(data).unwrap();
+
+        let staging_buffer = Buffer::new(
+            &surface_state.gpu.memory_allocator,
+            &buffer_ci,
+            &alloc_ci,
+            layout,
+        )?;
+
+        unsafe {
+            surface_state.gpu.device.set_debug_utils_object_name(
+                &staging_buffer,
+                Some(&format!("Staging buffer for {}", name.unwrap_or("unnamed"))),
+            )
+        }?;
+
+        let BufferMemory::Normal(mem) = staging_buffer.memory() else {
+            panic!("staging buffer wasn't backed by normal memory");
+        };
+
+        unsafe {
+            mem.mapped_slice(..)
+                .unwrap()?
+                .as_mut()
+                .copy_from_slice(bytemuck::cast_slice(data));
+
+            mem.flush_range(&MappedMemoryRange::default())?
+        };
+
+        assert!(create_info.usage.contains(BufferUsage::TRANSFER_DST));
+
+        let alloc_ci = AllocationCreateInfo {
+            memory_type_filter: MemoryTypeFilter::PREFER_DEVICE,
+            ..Default::default()
+        };
+
+        let actual_buffer = Buffer::new(
+            &surface_state.gpu.memory_allocator,
+            create_info,
+            &alloc_ci,
+            layout,
+        )?;
+
+        unsafe {
+            surface_state
+                .gpu
+                .device
+                .set_debug_utils_object_name(&actual_buffer, name)
+        }?;
+
+        unsafe {
+            self.cmd_buffer
+                .copy_buffer(&CopyBufferInfo::new(&staging_buffer, &actual_buffer));
+        }
+
+        // push both buffers to the keep alive list because they need to be alive until the commmand buffer is submitted
+        surface_state.keep_alive(staging_buffer);
+        surface_state.keep_alive(actual_buffer.clone());
+
+        Ok(actual_buffer)
+    }
 }
 
 #[derive(Debug)]

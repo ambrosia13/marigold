@@ -1,24 +1,35 @@
 use std::{
     fs::FileType,
+    num::NonZeroU64,
     path::{Path, PathBuf},
+    ptr::NonNull,
+    sync::Arc,
 };
 
 use bevy_ecs::{
     component::Component,
     entity::Entity,
-    query::With,
-    system::{Commands, Res, Single},
+    query::{Added, With, Without},
+    system::{Commands, NonSend, NonSendMut, Query, Res, ResMut, Single},
 };
 use gltf_loading::GltfScenes;
-use mesh_interface::{Scene, UnserializedMesh};
+use mesh_interface::{MeshVertex, Scene, UnserializedMesh};
 use vulkano::{
     DeviceAddress,
     acceleration_structure::{AccelerationStructure, AccelerationStructureInstance},
-    buffer::{Buffer, BufferCreateFlags, BufferCreateInfo, BufferUsage},
-    memory::allocator::{AllocationCreateInfo, DeviceLayout, MemoryTypeFilter},
+    buffer::{Buffer, BufferCreateFlags, BufferCreateInfo, BufferMemory, BufferUsage, Subbuffer},
+    command_buffer::raw::CopyBufferInfo,
+    memory::{
+        MappedMemoryRange,
+        allocator::{AllocationCreateInfo, DeviceLayout, MemoryTypeFilter},
+    },
 };
 
-use crate::{util, vk::GpuHandle, window::schedules::SystemResult};
+use crate::{
+    util,
+    vk::{FrameRecord, GpuHandle, SurfaceState},
+    window::schedules::SystemResult,
+};
 
 /// attached to the model entity that is active
 #[derive(Component)]
@@ -43,8 +54,11 @@ pub struct ModelData {
 #[derive(Component)]
 pub struct UploadedModel {
     /// (vertex_buffer, index_buffer)
-    pub mesh_buffers: Vec<(Buffer, Buffer)>,
-    pub instance_buffers: Vec<Buffer>,
+    pub mesh_buffers: Vec<(Arc<Buffer>, Arc<Buffer>)>,
+    pub mesh_addresses: Vec<(NonZeroU64, NonZeroU64)>,
+
+    pub instance_buffers: Vec<Arc<Buffer>>,
+    pub instance_addresses: Vec<NonZeroU64>,
 }
 
 /// system to enumerate all scenes
@@ -99,10 +113,14 @@ pub fn load_active_model(
 
 /// system that uploads active model data to the gpu, then discards the cpu-side copy
 pub fn upload_active_model(
-    gpu: Res<GpuHandle>,
+    mut surface_state: ResMut<SurfaceState>,
+    mut frame: NonSendMut<FrameRecord>,
     mut commands: Commands,
-    query: Single<(Entity, &ModelInfo, &ModelData), With<ActiveModel>>,
+    query: Single<(Entity, &ModelInfo, &ModelData), Added<ActiveModel>>,
 ) -> SystemResult {
+    // workaround because rust-analyzer isn't giving intellisense for Res<T>
+    let surface_state: &mut SurfaceState = &mut surface_state;
+
     let (entity, info, data) = *query;
 
     log::info!(
@@ -110,24 +128,93 @@ pub fn upload_active_model(
         info.name
     );
 
-    let mut mesh_buffers: Vec<Buffer> = Vec::with_capacity(data.meshes.len());
-    let mut instance_buffers: Vec<Buffer> = Vec::with_capacity(data.scenes.len());
+    let mut mesh_buffers = Vec::with_capacity(data.meshes.len());
+    let mut mesh_addresses = Vec::with_capacity(data.meshes.len());
 
-    for mesh in &data.meshes {
-        let buffer_ci = BufferCreateInfo {
-            usage: BufferUsage::TRANSFER_SRC,
+    let mut instance_buffers = Vec::with_capacity(data.scenes.len());
+    let mut instance_addresses = Vec::with_capacity(data.scenes.len());
+
+    for (index, mesh) in data.meshes.iter().enumerate() {
+        let vertex_buffer_ci = BufferCreateInfo {
+            usage: BufferUsage::VERTEX_BUFFER
+                | BufferUsage::ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY
+                | BufferUsage::SHADER_DEVICE_ADDRESS
+                | BufferUsage::TRANSFER_DST,
             ..Default::default()
         };
 
-        let alloc_ci = AllocationCreateInfo {
-            memory_type_filter: MemoryTypeFilter::HOST_SEQUENTIAL_WRITE,
+        let index_buffer_ci = BufferCreateInfo {
+            usage: BufferUsage::INDEX_BUFFER
+                | BufferUsage::ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY
+                | BufferUsage::SHADER_DEVICE_ADDRESS
+                | BufferUsage::TRANSFER_DST,
             ..Default::default()
         };
 
-        let layout = DeviceLayout::for_value(mesh.vertices.as_slice()).unwrap();
+        let vertex_buffer = frame.upload_buffer(
+            surface_state,
+            &mesh.vertices,
+            &vertex_buffer_ci,
+            Some(&format!(
+                "model {}; mesh #{} vertex buffer",
+                info.name, index
+            )),
+        )?;
 
-        let staging_buffer = Buffer::new(&gpu.memory_allocator, &buffer_ci, &alloc_ci, layout)?;
+        let index_buffer = frame.upload_buffer(
+            surface_state,
+            &mesh.triangles,
+            &index_buffer_ci,
+            Some(&format!(
+                "model {}; mesh #{} index buffer",
+                info.name, index
+            )),
+        )?;
+
+        mesh_addresses.push((
+            vertex_buffer.device_address(),
+            index_buffer.device_address(),
+        ));
+
+        mesh_buffers.push((vertex_buffer, index_buffer));
     }
+
+    for (index, instance) in data.scenes[info.active_scene].instances.iter().enumerate() {
+        let instance_buffer_ci = BufferCreateInfo {
+            usage: BufferUsage::SHADER_DEVICE_ADDRESS
+                | BufferUsage::ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY
+                | BufferUsage::TRANSFER_DST,
+            ..Default::default()
+        };
+
+        let instance_buffer = frame.upload_buffer(
+            surface_state,
+            &[instance.transform],
+            &instance_buffer_ci,
+            Some(&format!("model {}; instance #{}", info.name, index)),
+        )?;
+
+        instance_addresses.push(instance_buffer.device_address());
+        instance_buffers.push(instance_buffer);
+    }
+
+    commands.entity(entity).insert(UploadedModel {
+        mesh_buffers,
+        mesh_addresses,
+        instance_buffers,
+        instance_addresses,
+    });
 
     Ok(())
 }
+
+// pub fn unload_inactive_models(
+//     mut surface_state: ResMut<SurfaceState>,
+//     mut frame: NonSendMut<FrameRecord>,
+//     mut commands: Commands,
+//     query: Query<(Entity, &ModelInfo, &ModelData), Without<ActiveModel>>,
+// ) -> SystemResult {
+//     for (entity, info, )
+
+//     Ok(())
+// }

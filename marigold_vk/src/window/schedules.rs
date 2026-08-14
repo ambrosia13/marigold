@@ -114,8 +114,13 @@ impl Default for Schedules {
         ));
 
         // render setup
+        // schedules
+        //     .on_init_render_setup
+        //     .add_systems();
+
+        // render update
         schedules
-            .on_init_render_setup
+            .on_redraw_render
             .add_systems(scene::upload_active_model);
 
         // messages
