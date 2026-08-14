@@ -13,7 +13,6 @@ fn main() {
         .filter_module("mesh_interface", log::LevelFilter::Info)
         .filter_module("gltf_loading", log::LevelFilter::Info)
         .filter_module("marigold", log::LevelFilter::Info)
-        .filter_module("marigold_vk", log::LevelFilter::Info)
         .init();
 
     window::run();

@@ -1,8 +1,8 @@
-target
-renderdoc
 .cargo
+target
 out
+
 *.tar.gz
 
 # avoid committing model files
-marigold_vk/assets/models/*
+marigold/assets/models

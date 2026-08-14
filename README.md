@@ -1,36 +1,8 @@
-# vulkan in marigold
-
-marigold uses the Vulkan graphics API to render with utmost flexibility. Previously, a WebGPU-like API was used via `wgpu`, but since marigold uses some Vulkan-centric features that haven't yet made their way into `wgpu`, I attempted to switch to a native Vulkan library via `vulkano`. However, because there are few learning resources for this specific Vulkan abstraction, I settled on raw Vulkan bindings via `ash`. 
-
-This additionally made it easier to support my learning of Vulkan, which I've been meaning to do for a while. I'm not interested in writing raw, unsafe graphics code that supports decade-old devices. In my view, the entire point of foregoing abstractions is to gain access to cutting-edge features that haven't yet been abstracted away. To this end, I chose not to use the classic 2016-era Vulkan tutorials, and instead used this 2026 tutorial that focuses on using modern extensions that make the experience of writing raw Vulkan much more pleasant: [howtovulkan.com](https://howtovulkan.com/).
-
-Following the tutorial's recommendation, I also use the Vulkan Memory Allocator (VMA) and don't handle validation layers in-app and instead manage them through an external debug app (`vkconfig`'s GUI).
-
-# Bounding volume hierarchies in marigold
-
-marigold uses a two-level acceleration structure to represent the scene on the gpu. The acceleration structure used is a form of bounding volume hierarchy (BVH).
-
-The top-level acceleration structure (TLAS) is a BVH built over the entire scene. The bottom-level acceleration structures (BLAS) are built over the triangles within a mesh, and there is one BLAS for each mesh in the scene. Although this approach is typically used for animations and fast rebuilds, neither of which apply to marigold, it does provide the benefit of supporting instancing, which allows for larger scenes to fit in GPU memory.
-
-Currently, the bounding volume implementation is a binary BVH using an adapted form of the surface area heuristic (SAH). It is flexible and allows defining an upper and lower bound for the number of objects in a leaf, though it is optimized for exactly 1 object per leaf, since that's the format used to compress the binary BVH into a wide BVH.
-
-In the binary BVH, each node is split according to the following three methods: a binned sweep, a forced median split as fallback, and what I'm calling "adaptive sweep".
-
-- Adaptive sweep checks potential splits along a certain amount of threshold values distributed along the node bounds. It's similar to a full-sweep, which guarantees best SAH quality, but faster since we check at a lower number of intervals. The result is a fairly good quality split without the cost of doing a full sweep. It's inspired by [Sebastian Lague's BVH video](https://youtu.be/C1H4zIiCOaI?si=CtxDX2A2TkkIiuMX) on YouTube.
-- Binned sweep uses binning to greatly minimize the cost of checking a split by sorting objects into discrete bins, and doing cost calculations on those bins rather than the original set of objects
-- Median split is a fallback, chosen if a split is required due to the constraints but neither of the above methods produce valid splits
-
-In all cases, the surface area heuristic is used to choose the split candidate with the lowest cost according to the heuristic.
-
-Wide BVHs are structures with many children per node, as opposed to the binary BVH which has exactly two children per node. A BVH8 implementation is planned, following [Efficient Incoherent Ray Traversal on GPUs Through Compressed Wide BVHs](https://research.nvidia.com/sites/default/files/publications/ylitie2017hpg-paper.pdf) (Ylitie et al.).
-
 # Workspace structure
 
 This project is split into multiple crates in a workspace. The main workspace, `marigold`, contains the main app executable code. All assets and shaders are placed within the marigold workspace member, for simpler asset finding code.
 
 Self-contained subsystems are split into their own workspace members, such as `bvh`. This is useful for certain math/logic-heavy crates which benefit from release mode optimizations; this way, the most performance-critical parts of marigold can be built in release mode without slowing down the entire build process.
-
-There's also separate binary workspaces for testing and profiling, such as `bvh_sample_collector`, which collects data separately for use with bvh profiling.
 
 A list of all the workspaces and their purpose:
 - marigold: main app
@@ -109,7 +81,6 @@ This is useful for preparing a binary for programs like RenderDoc and NVIDIA NSi
 
 ## when running
 
-- `WINIT_UNIX_BACKEND`: if set to `x11`, creates an X11 window; if set to `wayland`, creates a Wayland window; if unset, let the window backend decide. This is useful for programs like RenderDoc which don't work well in Wayland. Has no effect outside of Linux.
-- `DISABLE_VALIDATION_LAYERS`: set to any value other than 0 to disable Vulkan validation layers while keeping other wgpu debug info present. Only applies in debug builds.
+- `WINIT_UNIX_BACKEND`: if set to `x11`, creates an X11 window; if set to `wayland`, creates a Wayland window; if unset, let the window library decide. This is useful for programs like RenderDoc which don't work well in Wayland. Has no effect outside of Linux.
 - `PROFILING_INFO`: set to 1 to log and 2 to additionally write specific profiling information to disk.
 - `ECS_SINGLE_THREADED`: set to any value other than 0 to make `bevy-ecs` use a single threaded system executor. This doesn't make the program as a whole run as a single thread, just the ECS backend. For program-wide single threading, use this environment variable in combination with `RAYON_NUM_THREADS=1`.

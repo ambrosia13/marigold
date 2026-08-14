@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["gltf_loading", "marigold_vk", "mesh_interface", "bvh", "shader_compilation"]
+members = ["gltf_loading", "marigold", "mesh_interface", "bvh", "shader_compilation"]
 
 [workspace.dependencies]
 glam = { version = "0.33.3", features = ["bytemuck"] }
