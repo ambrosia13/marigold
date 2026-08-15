@@ -133,7 +133,7 @@ impl Default for Schedules {
 
         schedules
             .on_redraw_render
-            .add_systems(scene::upload_active_model);
+            .add_systems((camera::Camera::update, scene::upload_active_model));
 
         schedules
             .on_redraw_post_frame

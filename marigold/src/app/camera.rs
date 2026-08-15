@@ -1,8 +1,8 @@
-use std::{mem::MaybeUninit, num::NonZeroU64, ptr::NonNull, sync::Arc};
+use std::{mem::MaybeUninit, num::NonZeroU64, ptr::NonNull, sync::Arc, time::Instant};
 
 use bevy_ecs::{
     resource::Resource,
-    system::{Commands, Res},
+    system::{Commands, NonSend, Res, ResMut},
 };
 use bytemuck::{Pod, Zeroable};
 use glam::{DVec2, Mat3, Mat4, Quat, Vec3};
@@ -14,11 +14,11 @@ use winit::{dpi::PhysicalSize, keyboard::KeyCode};
 
 use crate::{
     app::{input::Input, time::Time},
-    vk::{FRAMES_IN_FLIGHT, SurfaceState},
+    vk::{FRAMES_IN_FLIGHT, FrameRecord, SurfaceState},
     window::schedules::SystemResult,
 };
 
-#[derive(Pod, Zeroable, Default, Clone, Copy)]
+#[derive(Resource, Pod, Zeroable, Default, Clone, Copy)]
 #[repr(C)]
 pub struct CameraUniform {
     // represent matrixes as arrays so the type follows scalar alignment rules; glam's matrix types are always aligned to 16 bytes unless
@@ -188,9 +188,24 @@ impl Camera {
             buffer_addresses: unsafe { std::mem::transmute(buffer_addresses) },
         });
 
+        commands.insert_resource(CameraUniform::default());
+
         log::info!("initialized camera system");
 
         Ok(())
+    }
+
+    pub fn update(
+        frame: NonSend<FrameRecord>,
+        mut camera: ResMut<Self>,
+        mut uniform: ResMut<CameraUniform>,
+    ) {
+        uniform.update_from(&camera);
+
+        unsafe {
+            camera.buffer_ptrs[frame.flight_index].as_mut()[..std::mem::size_of::<CameraUniform>()]
+                .copy_from_slice(bytemuck::bytes_of(&*uniform))
+        };
     }
 
     pub fn reconfigure_aspect(&mut self, window_size: PhysicalSize<u32>) {
