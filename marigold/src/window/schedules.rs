@@ -1,7 +1,7 @@
 use bevy_ecs::schedule::{IntoScheduleConfigs, Schedule, ScheduleLabel, SingleThreadedExecutor};
 
 use crate::{
-    app::{scene, time},
+    app::{camera, input, scene, time},
     window::messages::{
         AtmosphereRebakeMessage, ExitMessage, KeyInputMessage, MouseInputMessage,
         MouseMotionMessage, init_message_type, update_message_type,
@@ -107,21 +107,37 @@ impl Default for Schedules {
         };
 
         // app setup
-        schedules.on_init_app_setup.add_systems((
-            time::Time::init,
-            time::FpsCounter::init,
-            (scene::enumerate_models, scene::load_active_model).chain(),
-        ));
+        schedules.on_init_app_setup.add_systems(
+            (
+                time::Time::init, // time init runs before everything else
+                (
+                    time::FpsCounter::init,
+                    input::Input::init,
+                    camera::Camera::init,
+                    (scene::enumerate_models, scene::load_active_model).chain(),
+                ),
+            )
+                .chain(),
+        );
 
         // render setup
         // schedules
         //     .on_init_render_setup
         //     .add_systems();
 
-        // render update
+        // per-frame update
+        schedules.on_redraw_pre_frame.add_systems((
+            input::handle_keyboard_input_event,
+            input::handle_mouse_input_event,
+        ));
+
         schedules
             .on_redraw_render
             .add_systems(scene::upload_active_model);
+
+        schedules
+            .on_redraw_post_frame
+            .add_systems(input::Input::update);
 
         // messages
         schedules.on_init_message_setup.add_systems((

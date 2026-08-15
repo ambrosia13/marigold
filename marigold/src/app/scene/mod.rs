@@ -136,17 +136,15 @@ pub fn upload_active_model(
 
     for (index, mesh) in data.meshes.iter().enumerate() {
         let vertex_buffer_ci = BufferCreateInfo {
-            usage: BufferUsage::VERTEX_BUFFER
+            usage: BufferUsage::SHADER_DEVICE_ADDRESS
                 | BufferUsage::ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY
-                | BufferUsage::SHADER_DEVICE_ADDRESS
                 | BufferUsage::TRANSFER_DST,
             ..Default::default()
         };
 
         let index_buffer_ci = BufferCreateInfo {
-            usage: BufferUsage::INDEX_BUFFER
+            usage: BufferUsage::SHADER_DEVICE_ADDRESS
                 | BufferUsage::ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY
-                | BufferUsage::SHADER_DEVICE_ADDRESS
                 | BufferUsage::TRANSFER_DST,
             ..Default::default()
         };

@@ -726,7 +726,8 @@ impl FrameRecord {
         };
 
         let alloc_ci = AllocationCreateInfo {
-            memory_type_filter: MemoryTypeFilter::HOST_SEQUENTIAL_WRITE,
+            memory_type_filter: MemoryTypeFilter::HOST_SEQUENTIAL_WRITE
+                | MemoryTypeFilter::PREFER_HOST,
             ..Default::default()
         };
 
