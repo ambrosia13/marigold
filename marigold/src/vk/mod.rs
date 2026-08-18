@@ -68,8 +68,8 @@ impl GpuHandle {
 
         let validation_layer_available = library
             .layer_properties()
-            .unwrap()
-            .any(|l| l.name() == "VK_LAYER_KHRONOS_validation");
+            .map(|mut it| it.any(|l| l.name() == "VK_LAYER_KHRONOS_validation"))
+            .unwrap_or(false);
 
         if validation_layer_available {
             log::info!("Validation layers are present; enable them through vkconfig gui");
@@ -318,21 +318,21 @@ impl SwapchainState {
 
         let render_semaphores = (0..images.len())
             .map(|i| {
-                let semaphore =
-                    Arc::new(Semaphore::new(&gpu.device, &SemaphoreCreateInfo::default()).unwrap());
+                let semaphore = Arc::new(Semaphore::new(
+                    &gpu.device,
+                    &SemaphoreCreateInfo::default(),
+                )?);
 
                 unsafe {
-                    gpu.device
-                        .set_debug_utils_object_name(
-                            &semaphore,
-                            Some(&format!("Render Semaphore {}", i)),
-                        )
-                        .unwrap()
-                };
+                    gpu.device.set_debug_utils_object_name(
+                        &semaphore,
+                        Some(&format!("Render Semaphore {}", i)),
+                    )
+                }?;
 
-                semaphore
+                Ok(semaphore)
             })
-            .collect();
+            .collect::<anyhow::Result<_>>()?;
 
         Ok(Self {
             inner: swapchain,
@@ -387,23 +387,21 @@ impl SwapchainState {
 
         self.render_semaphores = (0..self.images.len())
             .map(|i| {
-                let semaphore = Arc::new(
-                    Semaphore::new(&self.gpu.device, &SemaphoreCreateInfo::default()).unwrap(),
-                );
+                let semaphore = Arc::new(Semaphore::new(
+                    &self.gpu.device,
+                    &SemaphoreCreateInfo::default(),
+                )?);
 
                 unsafe {
-                    self.gpu
-                        .device
-                        .set_debug_utils_object_name(
-                            &semaphore,
-                            Some(&format!("Render Semaphore {}", i)),
-                        )
-                        .unwrap()
-                };
+                    self.gpu.device.set_debug_utils_object_name(
+                        &semaphore,
+                        Some(&format!("Render Semaphore {}", i)),
+                    )
+                }?;
 
-                semaphore
+                Ok(semaphore)
             })
-            .collect();
+            .collect::<anyhow::Result<_>>()?;
 
         Ok(())
     }
@@ -436,43 +434,39 @@ impl SurfaceState {
     ) -> anyhow::Result<Self> {
         let swapchain = SwapchainState::new(gpu, surface.clone(), window.clone())?;
 
-        let acquire_semaphores = std::array::from_fn(|i| {
-            let semaphore =
-                Arc::new(Semaphore::new(&gpu.device, &SemaphoreCreateInfo::default()).unwrap());
+        let acquire_semaphores = std::array::try_from_fn(|i| -> anyhow::Result<_> {
+            let semaphore = Arc::new(Semaphore::new(
+                &gpu.device,
+                &SemaphoreCreateInfo::default(),
+            )?);
+
+            unsafe {
+                gpu.device.set_debug_utils_object_name(
+                    &semaphore,
+                    Some(&format!("Acquire Semaphore {}", i)),
+                )?
+            };
+
+            Ok(semaphore)
+        })?;
+
+        let submit_fences = std::array::try_from_fn(|i| -> anyhow::Result<_> {
+            let fence = Arc::new(Fence::new(
+                &gpu.device,
+                &FenceCreateInfo {
+                    // create in the signaled state so the first frame knows not to wait on anything
+                    flags: FenceCreateFlags::SIGNALED,
+                    ..Default::default()
+                },
+            )?);
 
             unsafe {
                 gpu.device
-                    .set_debug_utils_object_name(
-                        &semaphore,
-                        Some(&format!("Acquire Semaphore {}", i)),
-                    )
-                    .unwrap()
+                    .set_debug_utils_object_name(&fence, Some(&format!("Submit Fence {}", i)))?
             };
 
-            semaphore
-        });
-
-        let submit_fences = std::array::from_fn(|i| {
-            let fence = Arc::new(
-                Fence::new(
-                    &gpu.device,
-                    &FenceCreateInfo {
-                        // create in the signaled state so the first frame knows not to wait on anything
-                        flags: FenceCreateFlags::SIGNALED,
-                        ..Default::default()
-                    },
-                )
-                .unwrap(),
-            );
-
-            unsafe {
-                gpu.device
-                    .set_debug_utils_object_name(&fence, Some(&format!("Submit Fence {}", i)))
-                    .unwrap()
-            };
-
-            fence
-        });
+            Ok(fence)
+        })?;
 
         let cmd_buffer_allocators = std::array::from_fn(|_| {
             Arc::new(StandardCommandBufferAllocator::new(

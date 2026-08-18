@@ -139,6 +139,9 @@ impl Default for Schedules {
             .on_redraw_post_frame
             .add_systems(input::Input::update);
 
+        // on-demand updates
+        schedules.on_resize.add_systems(camera::Camera::on_resize);
+
         // messages
         schedules.on_init_message_setup.add_systems((
             init_message_type::<MouseMotionMessage>,

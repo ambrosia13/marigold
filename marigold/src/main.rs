@@ -1,4 +1,7 @@
+#![feature(array_try_from_fn)]
+
 mod app;
+mod render;
 mod util;
 mod vk;
 mod window;

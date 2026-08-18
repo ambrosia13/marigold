@@ -1,6 +1,7 @@
 use std::{mem::MaybeUninit, num::NonZeroU64, ptr::NonNull, sync::Arc, time::Instant};
 
 use bevy_ecs::{
+    message::MessageReader,
     resource::Resource,
     system::{Commands, NonSend, Res, ResMut},
 };
@@ -15,7 +16,7 @@ use winit::{dpi::PhysicalSize, keyboard::KeyCode};
 use crate::{
     app::{input::Input, time::Time},
     vk::{FRAMES_IN_FLIGHT, FrameRecord, SurfaceState},
-    window::schedules::SystemResult,
+    window::{messages::MouseMotionMessage, schedules::SystemResult},
 };
 
 #[derive(Resource, Pod, Zeroable, Default, Clone, Copy)]
@@ -89,7 +90,7 @@ pub struct Camera {
     pub rotation: Quat,
 
     pub movement_speed: f32,
-    pub sensitivity: f32,
+    pub sensitivity: f64,
     pub fov: f32,
 
     aspect: f32,
@@ -100,9 +101,9 @@ pub struct Camera {
     yaw: f64,
 
     // things required to upload to the gpu
-    pub buffers: [Arc<Buffer>; FRAMES_IN_FLIGHT],
     pub buffer_ptrs: [NonNull<[u8]>; FRAMES_IN_FLIGHT], // for cpu writes
     pub buffer_addresses: [NonZeroU64; FRAMES_IN_FLIGHT], // for gpu reads
+    pub buffers: [Arc<Buffer>; FRAMES_IN_FLIGHT],
 }
 
 unsafe impl Send for Camera {}
@@ -125,6 +126,9 @@ impl Camera {
         let sensitivity = 0.1;
 
         let (rotation, yaw, pitch) = Self::get_rotation_from_view_vector(position, target);
+
+        // using maybe uninit to propagate errors and avoid unwraps
+        // note: we can use try_from_fn but i realized that afterwards and don't want to rewrite this part :(
 
         use std::array::from_fn;
         let mut buffers: [_; FRAMES_IN_FLIGHT] = from_fn(|_| MaybeUninit::uninit());
@@ -199,13 +203,23 @@ impl Camera {
         frame: NonSend<FrameRecord>,
         mut camera: ResMut<Self>,
         mut uniform: ResMut<CameraUniform>,
+        input: Res<Input>,
+        time: Res<Time>,
+        mut mouse_motion_events: MessageReader<MouseMotionMessage>,
     ) {
+        camera.update_position(&input, &time);
+        camera.update_rotation(mouse_motion_events.read().map(|e| **e).sum());
+
         uniform.update_from(&camera);
 
         unsafe {
             camera.buffer_ptrs[frame.flight_index].as_mut()[..std::mem::size_of::<CameraUniform>()]
                 .copy_from_slice(bytemuck::bytes_of(&*uniform))
         };
+    }
+
+    pub fn on_resize(mut camera: ResMut<Self>, surface_state: Res<SurfaceState>) {
+        camera.reconfigure_aspect(surface_state.window.inner_size());
     }
 
     pub fn reconfigure_aspect(&mut self, window_size: PhysicalSize<u32>) {
@@ -251,16 +265,20 @@ impl Camera {
     }
 
     pub fn view_matrix(&self) -> Mat4 {
-        Mat4::look_at_rh(self.position, self.position + self.forward(), Vec3::Y)
+        glam::camera::rh::view::look_to_mat4(self.position, self.forward(), Vec3::Y)
     }
 
     pub fn projection_matrix(&self) -> Mat4 {
-        Mat4::perspective_rh(self.fov.to_radians(), self.aspect, self.near, self.far)
+        glam::camera::rh::proj::vulkan::perspective_infinite_reverse(
+            self.fov.to_radians(),
+            self.aspect,
+            self.near,
+        )
     }
 
-    pub fn update_rotation(&mut self, mouse_delta: DVec2, sensitivity: f64) {
-        let yaw_delta = -mouse_delta.x * sensitivity;
-        let pitch_delta = -mouse_delta.y * sensitivity;
+    pub fn update_rotation(&mut self, mouse_delta: DVec2) {
+        let yaw_delta = -mouse_delta.x * self.sensitivity;
+        let pitch_delta = -mouse_delta.y * self.sensitivity;
 
         self.yaw += yaw_delta;
         self.pitch += pitch_delta;

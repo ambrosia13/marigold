@@ -1,33 +1,18 @@
-use std::{
-    fs::FileType,
-    num::NonZeroU64,
-    path::{Path, PathBuf},
-    ptr::NonNull,
-    sync::Arc,
-};
+use std::{num::NonZeroU64, path::PathBuf, sync::Arc};
 
 use bevy_ecs::{
     component::Component,
     entity::Entity,
-    query::{Added, With, Without},
-    system::{Commands, NonSend, NonSendMut, Query, Res, ResMut, Single},
+    query::{Added, With},
+    system::{Commands, NonSendMut, ResMut, Single},
 };
 use gltf_loading::GltfScenes;
-use mesh_interface::{MeshVertex, Scene, UnserializedMesh};
-use vulkano::{
-    DeviceAddress,
-    acceleration_structure::{AccelerationStructure, AccelerationStructureInstance},
-    buffer::{Buffer, BufferCreateFlags, BufferCreateInfo, BufferMemory, BufferUsage, Subbuffer},
-    command_buffer::raw::CopyBufferInfo,
-    memory::{
-        MappedMemoryRange,
-        allocator::{AllocationCreateInfo, DeviceLayout, MemoryTypeFilter},
-    },
-};
+use mesh_interface::{Scene, UnserializedMesh};
+use vulkano::buffer::{Buffer, BufferCreateInfo, BufferUsage};
 
 use crate::{
     util,
-    vk::{FrameRecord, GpuHandle, SurfaceState},
+    vk::{FrameRecord, SurfaceState},
     window::schedules::SystemResult,
 };
 
