@@ -13,6 +13,10 @@ rayon.workspace = true
 vulkano.workspace = true
 winit = "0.30.13"
 
+# user interface
+egui.workspace = true
+egui-winit.workspace = true
+
 # game engine stuff
 bevy_ecs = { version = "0.19.1", features = ["debug"] }
 glam.workspace = true

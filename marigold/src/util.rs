@@ -87,7 +87,7 @@ pub fn get_shader_path<P: AsRef<Path>>(shader_location: P) -> PathBuf {
 }
 
 fn bytes_to_spirv(bytes: &[u8]) -> &[u32] {
-    todo!("wgpu::util::make_spirv_raw")
+    bytemuck::cast_slice(bytes)
 }
 
 pub fn get_spirv_source<P: AsRef<Path>>(shader_location: P) -> Vec<u32> {

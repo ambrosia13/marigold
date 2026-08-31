@@ -2,6 +2,7 @@ use bevy_ecs::schedule::{IntoScheduleConfigs, Schedule, ScheduleLabel, SingleThr
 
 use crate::{
     app::{camera, input, scene, time},
+    render::geometry,
     window::messages::{
         AtmosphereRebakeMessage, ExitMessage, KeyInputMessage, MouseInputMessage,
         MouseMotionMessage, init_message_type, update_message_type,
@@ -12,6 +13,11 @@ pub type SystemResult = bevy_ecs::error::Result<()>;
 
 #[derive(ScheduleLabel, Eq, PartialEq, Copy, Clone, Hash, Debug)]
 struct OnResizeSchedule;
+
+/// systems that run indiscriminately on any winit window event. this is used for egui, which has its own
+/// winit integration that handles events for us
+#[derive(ScheduleLabel, Eq, PartialEq, Copy, Clone, Hash, Debug)]
+struct OnWindowEventSchedule;
 
 #[derive(ScheduleLabel, Eq, PartialEq, Copy, Clone, Hash, Debug)]
 struct OnInitMessageSetupSchedule;
@@ -56,6 +62,7 @@ pub struct Schedules {
 
     // event-driven schedules
     pub on_resize: Schedule,
+    pub on_window_event: Schedule,
 }
 
 impl Default for Schedules {
@@ -75,6 +82,7 @@ impl Default for Schedules {
 
         // event-driven schedules
         let mut on_resize = Schedule::new(OnResizeSchedule);
+        let mut on_window_event = Schedule::new(OnWindowEventSchedule);
 
         if crate::util::get_env_flag("ECS_SINGLE_THREADED") {
             log::info!("using single threaded ECS system execution due to environment variable");
@@ -91,6 +99,7 @@ impl Default for Schedules {
             on_redraw_menu_update.set_executor(SingleThreadedExecutor::default());
 
             on_resize.set_executor(SingleThreadedExecutor::default());
+            on_window_event.set_executor(SingleThreadedExecutor::default());
         }
 
         let mut schedules = Self {
@@ -104,6 +113,7 @@ impl Default for Schedules {
             on_resize,
             on_init_menu_setup,
             on_redraw_menu_update,
+            on_window_event,
         };
 
         // app setup
@@ -121,9 +131,9 @@ impl Default for Schedules {
         );
 
         // render setup
-        // schedules
-        //     .on_init_render_setup
-        //     .add_systems();
+        schedules
+            .on_init_render_setup
+            .add_systems(geometry::GeometryPass::init);
 
         // per-frame update
         schedules.on_redraw_pre_frame.add_systems((
@@ -131,16 +141,22 @@ impl Default for Schedules {
             input::handle_mouse_input_event,
         ));
 
-        schedules
-            .on_redraw_render
-            .add_systems((camera::Camera::update, scene::upload_active_model));
+        schedules.on_redraw_render.add_systems(
+            (
+                (camera::Camera::update, scene::upload_active_model),
+                geometry::GeometryPass::draw,
+            )
+                .chain(),
+        );
 
         schedules
             .on_redraw_post_frame
             .add_systems(input::Input::update);
 
         // on-demand updates
-        schedules.on_resize.add_systems(camera::Camera::on_resize);
+        schedules
+            .on_resize
+            .add_systems((camera::Camera::on_resize, geometry::GeometryPass::on_resize));
 
         // messages
         schedules.on_init_message_setup.add_systems((

@@ -1,6 +1,7 @@
 #![feature(array_try_from_fn)]
 
 mod app;
+mod egui;
 mod render;
 mod util;
 mod vk;

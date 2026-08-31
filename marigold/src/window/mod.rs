@@ -139,6 +139,8 @@ impl ApplicationHandler for App {
             }
         }
 
+        schedules.on_window_event.run(world);
+
         match event {
             // input events
             WindowEvent::KeyboardInput { event, .. } => {

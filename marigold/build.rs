@@ -65,6 +65,7 @@ fn compile(slangc: &str, regex: &Regex, debug_info: bool, errors: Sender<String>
             .arg("-target")
             .arg("spirv")
             .arg("-fvk-use-entrypoint-name")
+            .arg("-fvk-use-scalar-layout")
             // to avoid uncaught errors, don't let slang optimize out shader params
             .arg("-preserve-params");
 

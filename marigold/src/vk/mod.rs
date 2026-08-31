@@ -121,6 +121,7 @@ impl GpuHandle {
 
         let device_features = DeviceFeatures {
             buffer_device_address: true,
+            shader_draw_parameters: true, // for vertex pulling via BDA
 
             descriptor_indexing: true,
             runtime_descriptor_array: true,
