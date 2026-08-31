@@ -106,7 +106,9 @@ pub fn draw(
                     load_op: AttachmentLoadOp::Clear,
                     store_op: AttachmentStoreOp::Store,
                     clear_value: Some(ClearValue::Float([0.0, 0.0, 0.0, 1.0])),
-                    ..RenderingAttachmentInfo::new(&surface_state.swapchain.views[flight_index])
+                    ..RenderingAttachmentInfo::new(
+                        &surface_state.swapchain.views[swapchain_image_index as usize],
+                    )
                 })],
                 depth_attachment: Some(&Some(RenderingAttachmentInfo {
                     image_layout: ImageLayout::DepthAttachmentOptimal,
