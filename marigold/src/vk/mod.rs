@@ -588,22 +588,6 @@ impl SurfaceState {
                 }],
                 ..Default::default()
             });
-
-            cmd_buffer.begin_rendering(&RenderingInfo {
-                color_attachments: &[Some(RenderingAttachmentInfo {
-                    load_op: AttachmentLoadOp::Clear,
-                    store_op: AttachmentStoreOp::Store,
-                    clear_value: Some(ClearValue::Float([1.0, 0.5, 0.2, 1.0])),
-                    ..RenderingAttachmentInfo::new(
-                        &self.swapchain.views[swapchain_image_index as usize],
-                    )
-                })],
-                depth_attachment: None,
-                stencil_attachment: None,
-                ..Default::default()
-            });
-
-            cmd_buffer.end_rendering();
         }
 
         Ok(FrameRecord {

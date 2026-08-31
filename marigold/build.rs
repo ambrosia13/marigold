@@ -152,7 +152,7 @@ fn main() {
         _ => String::from("slangc"),
     };
 
-    let debug_info = match std::env::var("SHADER_DEBUG_INFO") {
+    let mut debug_info = match std::env::var("SHADER_DEBUG_INFO") {
         Ok(flag) => match flag.parse::<u32>() {
             Ok(flag) => flag != 0,
             Err(_) => {
@@ -165,6 +165,9 @@ fn main() {
         },
         _ => false,
     };
+
+    // force debug info in debug builds
+    debug_info |= cfg!(debug_assertions);
 
     let (tx, rx) = mpsc::channel();
 

@@ -1,4 +1,4 @@
-TARGET_NAME = marigold_vk
+TARGET_NAME = marigold
 
 TARGET_DIR = debug
 
@@ -34,7 +34,7 @@ build:
 	mkdir -p out/marigold/assets
 	mkdir -p out/marigold/assets/shaders
 
-	cp -r marigold/assets/meshes out/marigold/assets
+	cp -r marigold/assets/models out/marigold/assets
 	cp -r marigold/assets/shaders/target out/marigold/assets/shaders
 
 bundle: release

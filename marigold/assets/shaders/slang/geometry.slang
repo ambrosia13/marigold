@@ -14,7 +14,7 @@ struct FragmentOutput {
 
 [[shader("vertex")]]
 VertexOutput vertex(
-    uint drawIndex: SV_DrawIndex,
+    uint drawIndex: SV_VulkanVertexID,
 
     // push constants
     uniform uint* indices,

@@ -85,8 +85,7 @@ impl GeometryPass {
             &image_ai,
         )?;
 
-        let depth_image_view =
-            ImageView::new(&depth_image, &ImageViewCreateInfo::from_image(&depth_image))?;
+        let depth_image_view = ImageView::new_default(&depth_image)?;
 
         unsafe {
             surface_state
@@ -196,6 +195,22 @@ impl GeometryPass {
             &geometry_pass.image_ai,
         )?;
 
+        geometry_pass.depth_image_view = ImageView::new_default(&geometry_pass.depth_image)?;
+
+        unsafe {
+            geometry_pass.gpu.device.set_debug_utils_object_name(
+                &geometry_pass.depth_image,
+                Some("Geometry Pass Depth Image"),
+            )
+        }?;
+
+        unsafe {
+            geometry_pass.gpu.device.set_debug_utils_object_name(
+                &geometry_pass.depth_image_view,
+                Some("Geometry Pass Depth Image View"),
+            )
+        }?;
+
         geometry_pass.image_layout_transitioned = false;
 
         Ok(())
@@ -222,10 +237,11 @@ impl GeometryPass {
             unsafe {
                 frame.cmd_buffer.pipeline_barrier(&DependencyInfo {
                     image_memory_barriers: &[ImageMemoryBarrier {
-                        src_stages: PipelineStages::LATE_FRAGMENT_TESTS,
-                        src_access: AccessFlags::DEPTH_STENCIL_ATTACHMENT_WRITE,
+                        src_stages: PipelineStages::TOP_OF_PIPE,
+                        src_access: AccessFlags::empty(),
 
-                        dst_stages: PipelineStages::EARLY_FRAGMENT_TESTS,
+                        dst_stages: PipelineStages::EARLY_FRAGMENT_TESTS
+                            | PipelineStages::LATE_FRAGMENT_TESTS,
                         dst_access: AccessFlags::DEPTH_STENCIL_ATTACHMENT_WRITE,
 
                         old_layout: ImageLayout::Undefined,
@@ -296,7 +312,7 @@ impl GeometryPass {
         let (info, model_data, uploaded_model): (&ModelInfo, &ModelData, &UploadedModel) = *query;
 
         for instance in &model_data.scenes[info.active_scene].instances {
-            let (index_buffer_address, vertex_buffer_address) =
+            let (vertex_buffer_address, index_buffer_address) =
                 uploaded_model.mesh_addresses[instance.mesh_index];
 
             unsafe {
@@ -313,7 +329,7 @@ impl GeometryPass {
 
             unsafe {
                 frame.cmd_buffer.draw(
-                    model_data.meshes[instance.mesh_index].triangles.len() as u32,
+                    model_data.meshes[instance.mesh_index].triangles.len() as u32 * 3,
                     1,
                     0,
                     0,

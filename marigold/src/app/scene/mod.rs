@@ -50,6 +50,11 @@ pub struct UploadedModel {
 pub fn enumerate_models(mut commands: Commands) -> SystemResult {
     let model_dir_root_path = util::get_asset_path("models");
 
+    log::info!(
+        "Model directory resolves to {}",
+        model_dir_root_path.to_string_lossy()
+    );
+
     if !std::fs::exists(&model_dir_root_path).unwrap_or(false) {
         log::warn!("assets/models directory does not exist, here be dragons");
     }

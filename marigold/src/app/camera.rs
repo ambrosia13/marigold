@@ -313,6 +313,7 @@ impl Camera {
         }
 
         velocity = velocity.normalize_or_zero();
+
         self.position += velocity * self.movement_speed * time.delta().as_secs_f32();
     }
 
