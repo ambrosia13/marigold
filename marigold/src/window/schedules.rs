@@ -2,7 +2,7 @@ use bevy_ecs::schedule::{IntoScheduleConfigs, Schedule, ScheduleLabel, SingleThr
 
 use crate::{
     app::{camera, input, scene, time},
-    render::geometry,
+    render::{self, geometry},
     window::messages::{
         AtmosphereRebakeMessage, ExitMessage, KeyInputMessage, MouseInputMessage,
         MouseMotionMessage, init_message_type, update_message_type,
@@ -144,7 +144,7 @@ impl Default for Schedules {
         schedules.on_redraw_render.add_systems(
             (
                 (camera::Camera::update, scene::upload_active_model),
-                geometry::GeometryPass::draw,
+                render::draw,
             )
                 .chain(),
         );

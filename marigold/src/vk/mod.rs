@@ -566,30 +566,6 @@ impl SurfaceState {
         )
         .map_err(FrameError::Vulkan)?;
 
-        unsafe {
-            cmd_buffer.pipeline_barrier(&DependencyInfo {
-                image_memory_barriers: &[ImageMemoryBarrier {
-                    src_stages: PipelineStages::TOP_OF_PIPE,
-                    src_access: AccessFlags::empty(),
-
-                    dst_stages: PipelineStages::COLOR_ATTACHMENT_OUTPUT,
-                    dst_access: AccessFlags::COLOR_ATTACHMENT_WRITE,
-
-                    old_layout: ImageLayout::Undefined,
-                    new_layout: ImageLayout::General,
-
-                    subresource_range: ImageSubresourceRange {
-                        aspects: ImageAspects::COLOR,
-                        ..Default::default()
-                    },
-                    ..ImageMemoryBarrier::new(
-                        &self.swapchain.images[swapchain_image_index as usize],
-                    )
-                }],
-                ..Default::default()
-            });
-        }
-
         Ok(FrameRecord {
             cmd_buffer,
             flight_index: self.frame_in_flight_index,
@@ -597,32 +573,7 @@ impl SurfaceState {
         })
     }
 
-    pub fn finish_frame(&mut self, mut frame: FrameRecord) -> anyhow::Result<()> {
-        // transition back into the present optimal layout
-        unsafe {
-            frame.cmd_buffer.pipeline_barrier(&DependencyInfo {
-                image_memory_barriers: &[ImageMemoryBarrier {
-                    src_stages: PipelineStages::COLOR_ATTACHMENT_OUTPUT,
-                    src_access: AccessFlags::COLOR_ATTACHMENT_WRITE,
-
-                    dst_stages: PipelineStages::BOTTOM_OF_PIPE,
-                    dst_access: AccessFlags::empty(),
-
-                    old_layout: ImageLayout::General,
-                    new_layout: ImageLayout::PresentSrc,
-
-                    subresource_range: ImageSubresourceRange {
-                        aspects: ImageAspects::COLOR,
-                        ..Default::default()
-                    },
-                    ..ImageMemoryBarrier::new(
-                        &self.swapchain.images[frame.swapchain_image_index as usize],
-                    )
-                }],
-                ..Default::default()
-            })
-        };
-
+    pub fn finish_frame(&mut self, frame: FrameRecord) -> anyhow::Result<()> {
         // we propagate this error because I think this function shouldn't have to worry about general
         // command submission failing, just surface presentation failing?
         let cmd_buffer = unsafe { frame.cmd_buffer.end() }?;
