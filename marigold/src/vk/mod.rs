@@ -42,7 +42,7 @@ use vulkano::{
 };
 use winit::{event_loop::EventLoop, window::Window};
 
-pub mod buffervec;
+pub mod bindless;
 
 pub const FRAMES_IN_FLIGHT: usize = 3;
 
@@ -114,14 +114,15 @@ impl GpuHandle {
             khr_acceleration_structure: true,
             khr_ray_query: true,
             khr_ray_tracing_pipeline: true,
-            khr_ray_tracing_position_fetch: true,
             // khr_ray_tracing_maintenance1: true,
+            khr_ray_tracing_position_fetch: true,
+
+            ext_mutable_descriptor_type: true,
             ..DeviceExtensions::empty()
         };
 
         let device_features = DeviceFeatures {
             buffer_device_address: true,
-            shader_draw_parameters: true, // for vertex pulling via BDA
 
             descriptor_indexing: true,
             runtime_descriptor_array: true,
@@ -226,8 +227,8 @@ impl GpuHandle {
 
 pub struct SwapchainState {
     pub inner: Arc<Swapchain>,
-    pub images: Vec<Arc<Image>>,
-    pub views: Vec<Arc<ImageView>>,
+    images: Vec<Arc<Image>>,
+    views: Vec<Arc<ImageView>>,
     pub format: Format,
 
     // one for each swapchain image
@@ -423,6 +424,7 @@ pub struct SurfaceState {
     pub cmd_buffer_allocators: [Arc<StandardCommandBufferAllocator>; FRAMES_IN_FLIGHT],
     pub keep_alive_lists: [Vec<Arc<dyn Any + Send + Sync>>; FRAMES_IN_FLIGHT],
 
+    swapchain_image_index: usize,
     frame_in_flight_index: usize,
     swapchain_needs_recreate: bool,
 }
@@ -484,6 +486,7 @@ impl SurfaceState {
             swapchain,
             window,
             gpu: gpu.clone(),
+            swapchain_image_index: 0,
             frame_in_flight_index: 0,
             acquire_semaphores,
             submit_fences,
@@ -499,6 +502,14 @@ impl SurfaceState {
         } else {
             log::error!("invalid window resize: {:?}, skipping", new_size);
         }
+    }
+
+    pub fn current_image(&self) -> Arc<Image> {
+        self.swapchain.images[self.swapchain_image_index].clone()
+    }
+
+    pub fn current_view(&self) -> Arc<ImageView> {
+        self.swapchain.views[self.swapchain_image_index].clone()
     }
 
     /// ensures that a vulkano object is kept alive for at least as many frames in flight there are
@@ -546,6 +557,8 @@ impl SurfaceState {
                 }
                 Err(e) => return Err(FrameError::Vulkan(e)),
             };
+
+        self.swapchain_image_index = swapchain_image_index as usize;
 
         if suboptimal {
             self.swapchain_needs_recreate = true;

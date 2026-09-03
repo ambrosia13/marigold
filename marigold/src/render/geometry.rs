@@ -55,7 +55,7 @@ impl GeometryPass {
 
         let depth_image_ci = ImageCreateInfo {
             format: Format::D32_SFLOAT,
-            extent: surface_state.swapchain.images[0].extent(),
+            extent: surface_state.current_image().extent(),
             usage: ImageUsage::DEPTH_STENCIL_ATTACHMENT,
             ..Default::default()
         };

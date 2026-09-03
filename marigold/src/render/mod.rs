@@ -57,9 +57,7 @@ pub fn draw(
                     aspects: ImageAspects::COLOR,
                     ..Default::default()
                 },
-                ..ImageMemoryBarrier::new(
-                    &surface_state.swapchain.images[swapchain_image_index as usize],
-                )
+                ..ImageMemoryBarrier::new(&surface_state.current_image())
             }],
             ..Default::default()
         });
@@ -106,9 +104,7 @@ pub fn draw(
                     load_op: AttachmentLoadOp::Clear,
                     store_op: AttachmentStoreOp::Store,
                     clear_value: Some(ClearValue::Float([0.0, 0.0, 0.0, 1.0])),
-                    ..RenderingAttachmentInfo::new(
-                        &surface_state.swapchain.views[swapchain_image_index as usize],
-                    )
+                    ..RenderingAttachmentInfo::new(&surface_state.current_view())
                 })],
                 depth_attachment: Some(&Some(RenderingAttachmentInfo {
                     image_layout: ImageLayout::DepthAttachmentOptimal,
@@ -198,9 +194,7 @@ pub fn draw(
                     aspects: ImageAspects::COLOR,
                     ..Default::default()
                 },
-                ..ImageMemoryBarrier::new(
-                    &surface_state.swapchain.images[swapchain_image_index as usize],
-                )
+                ..ImageMemoryBarrier::new(&surface_state.current_image())
             }],
             ..Default::default()
         })
