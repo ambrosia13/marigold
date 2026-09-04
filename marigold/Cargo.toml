@@ -11,26 +11,26 @@ rayon.workspace = true
 [dependencies]
 # rendering
 vulkano.workspace = true
-winit = "0.30.13"
+winit.workspace = true
 
 # user interface
 egui.workspace = true
 egui-winit.workspace = true
 
 # game engine stuff
-bevy_ecs = { version = "0.19.1", features = ["debug"] }
+bevy_ecs = { workspace = true, features = ["debug"] }
 glam.workspace = true
 gltf.workspace = true
 
 # logging
-env_logger = "0.11.11"
+env_logger.workspace = true
 log.workspace = true
 
 # general utility
 anyhow.workspace = true
 derived-deref.workspace = true
 rayon.workspace = true
-itertools = "0.15.0"
+itertools.workspace = true
 
 # data manipulation
 bytemuck.workspace = true

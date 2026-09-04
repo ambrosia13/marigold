@@ -1,16 +1,26 @@
 [workspace]
 resolver = "3"
-members = ["gltf_loading", "marigold", "mesh_interface", "bvh", "shader_compilation"]
+members = [
+    "gltf_loading",
+    "marigold",
+    "mesh_interface",
+    "bvh",
+    "shader_compilation",
+]
 
 [workspace.dependencies]
-glam = { version = "0.33.3", features = ["bytemuck"] }
+glam = { version = "0.33.6", features = ["bytemuck"] }
 derived-deref = "2.1.0"
-log = { version = "0.4.33" }
+log = { version = "0.4.34" }
 anyhow = { version = "1.0.104" }
 rayon = { version = "1.12.0" }
 bytemuck = { version = "1.25.2" }
 rand = { version = "0.10.2" }
 gltf = { version = "1.4.1" }
-vulkano = { git = "https://github.com/vulkano-rs/vulkano", rev = "fb4cfdb" }
+vulkano = { git = "https://github.com/vulkano-rs/vulkano", rev = "70e3169" }
 egui = "0.36.1"
 egui-winit = "0.36.1"
+winit = { version = "0.30.13" }
+bevy_ecs = { version = "0.19.1" }
+env_logger = { version = "0.11.11" }
+itertools = { version = "0.15.0" }

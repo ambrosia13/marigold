@@ -444,7 +444,7 @@ name = "bvh"
 version = "0.1.0"
 dependencies = [
  "bytemuck",
- "glam 0.33.3",
+ "glam 0.33.6",
  "log",
  "rand",
  "rayon",
@@ -1242,9 +1242,9 @@ dependencies = [
 
 [[package]]
 name = "glam"
-version = "0.33.3"
+version = "0.33.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7360bd2cd76e0cd9032d42cf2922155cecea2685b0cfa4630c3246df030bcfd6"
+checksum = "21fef0953c54fd3de2f44b743fbf77e044c81a25faee03636dfccc0d35135e23"
 dependencies = [
  "bytemuck",
 ]
@@ -1309,7 +1309,7 @@ name = "gltf_loading"
 version = "0.1.0"
 dependencies = [
  "bvh",
- "glam 0.33.3",
+ "glam 0.33.6",
  "gltf",
  "log",
  "mesh_interface",
@@ -1771,9 +1771,9 @@ dependencies = [
 
 [[package]]
 name = "log"
-version = "0.4.33"
+version = "0.4.34"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0ceec5bc11778974d1bcb055b18002eba7f4b3518b6a0081b3af5f21666da9ad"
+checksum = "f9f8bd3e56ce4dfc153cf470fffbfa98c7620958b312ca5c3a4b8d5181fd13c6"
 
 [[package]]
 name = "marigold"
@@ -1788,7 +1788,7 @@ dependencies = [
  "egui",
  "egui-winit",
  "env_logger",
- "glam 0.33.3",
+ "glam 0.33.6",
  "gltf",
  "gltf_loading",
  "itertools",
@@ -1823,7 +1823,7 @@ dependencies = [
  "bvh",
  "bytemuck",
  "derived-deref",
- "glam 0.33.3",
+ "glam 0.33.6",
  "vulkano",
 ]
 
@@ -3191,7 +3191,7 @@ checksum = "0b928f33d975fc6ad9f86c8f283853ad26bdd5b10b7f1542aa2fa15e2289105a"
 [[package]]
 name = "vulkano"
 version = "0.35.0"
-source = "git+https://github.com/vulkano-rs/vulkano?rev=fb4cfdb#fb4cfdb56998f16b0a1265b813efbec63b93c036"
+source = "git+https://github.com/vulkano-rs/vulkano?rev=70e3169#70e31698dd820f15a709ac1f2d1f31929f672065"
 dependencies = [
  "ash",
  "bytemuck",
@@ -3213,7 +3213,7 @@ dependencies = [
 [[package]]
 name = "vulkano-macros"
 version = "0.35.0"
-source = "git+https://github.com/vulkano-rs/vulkano?rev=fb4cfdb#fb4cfdb56998f16b0a1265b813efbec63b93c036"
+source = "git+https://github.com/vulkano-rs/vulkano?rev=70e3169#70e31698dd820f15a709ac1f2d1f31929f672065"
 dependencies = [
  "proc-macro-crate",
  "proc-macro2",
